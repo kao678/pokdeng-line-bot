@@ -57,13 +57,9 @@ const flexText = (title, body) => ({
   }
 });
 
-/* ===== GROUP CHECK ===== */
-function isAllowedGroup(event) {
-  if (event.source.type !== "group") return true;
-  return ALLOWED_GROUPS.includes(event.source.groupId);
-}
+/* ================== HELPERS ================== */
+const isAllowedGroup = gid => ALLOWED_GROUPS.includes(gid);
 
-/* ===== GET LINE NAME ===== */
 async function getPlayerName(event, uid) {
   try {
     if (event.source.type === "group") {
@@ -80,33 +76,37 @@ async function getPlayerName(event, uid) {
 
 const displayName = p => p.nickName || p.lineName;
 
-/* ================== WEBHOOK (ถูกต้อง) ================== */
+/* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
     for (const event of req.body.events) {
 
-      // DEBUG (เปิดได้ถ้าจำเป็น)
-      // console.log("EVENT:", JSON.stringify(event));
-
       if (event.type !== "message") continue;
       if (event.message.type !== "text") continue;
 
-      /* 🔒 BLOCK UNAUTHORIZED GROUP */
-      if (event.source.type === "group" && !isAllowedGroup(event)) {
-        for (const owner of ADMIN_OWNER) {
-          await client.pushMessage(owner, flexText(
-            "🚫 พบการใช้งานผิดที่",
-            `Group ID:\n${event.source.groupId}`
-          ));
-        }
-        return reply(event, flexText(
-          "🚫 ไม่ได้รับอนุญาต",
-          "กลุ่มนี้ยังไม่ได้รับสิทธิ์ใช้งานบอท"
-        ));
-      }
-
       const uid = event.source.userId;
       const text = event.message.text.trim();
+      const groupId = event.source.type === "group"
+        ? event.source.groupId
+        : null;
+
+      /* 🚫 AUTO BLOCK UNAUTHORIZED GROUP */
+      if (groupId && !isAllowedGroup(groupId)) {
+
+        for (const owner of ADMIN_OWNER) {
+          await client.pushMessage(owner, flexText(
+            "🚨 ตรวจพบกลุ่มเถื่อน",
+            `Group ID:\n${groupId}\n\nระบบปิดการทำงานในกลุ่มนี้แล้ว`
+          ));
+        }
+
+        await reply(event, flexText(
+          "❌ ไม่ได้รับอนุญาต",
+          "กลุ่มนี้ไม่ได้รับสิทธิ์ใช้งานบอท\nกรุณาติดต่อผู้ดูแล"
+        ));
+
+        continue; // ❗ สำคัญมาก
+      }
 
       /* ===== INIT PLAYER ===== */
       if (!game.players[uid]) {
@@ -125,15 +125,25 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       }
       const p = game.players[uid];
 
-      /* 🆔 CHECK ID */
+      /* ================== BASIC ================== */
+      if (text === "ทดสอบ") {
+        return reply(event, flexText("✅ ระบบออนไลน์", "บอททำงานปกติ"));
+      }
+
       if (text === "เชคไอดี" || text === "checkid") {
         return reply(event, flexText(
-          "🆔 USER ID",
-          `${uid}\nสถานะ: ${p.role}`
+          "🆔 USER INFO",
+          `USER ID:\n${uid}\nสถานะ: ${p.role}`
         ));
       }
 
-      /* 💰 BALANCE */
+      if (text === "เชคกลุ่ม" && groupId) {
+        return reply(event, flexText(
+          "🆔 GROUP ID",
+          groupId
+        ));
+      }
+
       if (text === "ยอด" || text === "เครดิต") {
         return reply(event, flexText(
           "💰 เครดิตคงเหลือ",
@@ -141,7 +151,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         ));
       }
 
-      /* ✏️ NICK */
       if (text.startsWith("nick ")) {
         p.nickName = text.replace("nick ", "").trim();
         return reply(event, flexText(
@@ -150,7 +159,26 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         ));
       }
 
-      /* 🟢 OPEN ROUND */
+      /* ================== OWNER COMMAND ================== */
+      if (p.role === "owner" && text.startsWith("/allow ")) {
+        const gid = text.replace("/allow ", "").trim();
+        if (!ALLOWED_GROUPS.includes(gid)) ALLOWED_GROUPS.push(gid);
+        return reply(event, flexText(
+          "✅ อนุญาตกลุ่มแล้ว",
+          `Group ID:\n${gid}`
+        ));
+      }
+
+      if (p.role === "owner" && text.startsWith("/block ")) {
+        const gid = text.replace("/block ", "").trim();
+        ALLOWED_GROUPS = ALLOWED_GROUPS.filter(g => g !== gid);
+        return reply(event, flexText(
+          "🚫 บล็อกกลุ่มแล้ว",
+          `Group ID:\n${gid}`
+        ));
+      }
+
+      /* ================== GAME ================== */
       if (text === "เปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
         game.round++;
         game.status = "open";
@@ -161,7 +189,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         ));
       }
 
-      /* 🔴 CLOSE ROUND */
       if (text === "ปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
         game.status = "close";
         return reply(event, flexText(
@@ -170,7 +197,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         ));
       }
 
-      /* 🎯 BET */
       const m = text.match(/^([\d,]+)\/(\d+)$/);
       if (m && game.status === "open") {
         const legs = m[1].split(",").map(Number);
@@ -189,7 +215,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         ));
       }
 
-      /* 📊 RESULT INPUT */
       if (/^S/i.test(text) && (p.role === "owner" || p.role === "admin")) {
         const cards = parseResult(text);
         const banker = cards[cards.length - 1];
@@ -205,7 +230,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         return reply(event, resultFlex(game.round, bankerPoint, legs));
       }
 
-      /* ✅ CONFIRM */
       if ((text === "y" || text === "Y") &&
           (p.role === "owner" || p.role === "admin") &&
           game.tempResult) {
