@@ -173,8 +173,10 @@ async function handleEvent(event) {
 
     /* ---------- IMAGE (SLIP OCR) ---------- */
     if (msg.type === "image") {
-      if (p.pendingDeposit <= 0)
-        return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
+      if (text === "เมนูฝาก") {
+  p.pendingDeposit = -1;
+  return reply(event, "📸 กรุณาแนบสลิปโอนเงิน (ระบบอ่านยอดอัตโนมัติ)");
+      }
 
       const buffer = await downloadSlip(msg.id);
       const ocrText = await readSlipText(buffer);
