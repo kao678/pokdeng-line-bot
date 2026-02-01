@@ -10,9 +10,14 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-/* 🔴 UID แอดมิน */
-const ADMIN = [
-  "Uxxxxxxxxxxxxxxxxxxxxxxxx" // ← ใส่ UID แอดมินจริง
+/* 🔴 UID แอดมินหลัก (OWNER) */
+const ADMIN_OWNER = [
+  "Uxxxxxxxxxxxxxxxxxxxxxxxx" // ← ใส่ UID แอดมินหลัก
+];
+
+/* 🟡 UID แอดมินย่อย */
+const ADMIN_SUB = [
+  // "Uyyyyyyyyyyyyyyyyyyyyyyyy"
 ];
 
 /* ================== INIT ================== */
@@ -70,19 +75,8 @@ function summaryFlex(round, players) {
       layout: "horizontal",
       contents: [
         { type: "text", text: `${i + 1}`, flex: 1, color },
-        {
-          type: "text",
-          text: displayName(p),
-          flex: 4,
-          color: "#FFFFFF"
-        },
-        {
-          type: "text",
-          text: `💰 ${p.credit}`,
-          flex: 3,
-          align: "end",
-          color
-        }
+        { type: "text", text: displayName(p), flex: 4, color: "#FFFFFF" },
+        { type: "text", text: `💰 ${p.credit}`, flex: 3, align: "end", color }
       ],
       margin: "sm"
     };
@@ -133,15 +127,37 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       /* ===== init player ===== */
       if (!game.players[uid]) {
         const lineName = await getPlayerName(event, uid);
+
+        let role = "player";
+        if (ADMIN_OWNER.includes(uid)) role = "owner";
+        else if (ADMIN_SUB.includes(uid)) role = "admin";
+
         game.players[uid] = {
           credit: 2000,
           bets: {},
           lineName,
           nickName: null,
-          role: ADMIN.includes(uid) ? "admin" : "player"
+          role
         };
       }
       const p = game.players[uid];
+
+      /* ================== CHECK USER ID ================== */
+      if (text === "เชคไอดี" || text.toLowerCase() === "checkid") {
+        return reply(event, {
+          type: "text",
+          text:
+`🆔 USER ID
+${uid}
+👑 สถานะ: ${
+  p.role === "owner"
+    ? "แอดมินหลัก"
+    : p.role === "admin"
+    ? "แอดมินย่อย"
+    : "ผู้เล่น"
+}`
+        });
+      }
 
       /* ================== TEST ================== */
       if (text === "ทดสอบ") {
@@ -165,12 +181,9 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       /* ================== SET NICKNAME ================== */
       if (text.startsWith("nick ")) {
         const nick = text.replace("nick ", "").trim();
-        if (nick.length < 2) {
-          return reply(event, {
-            type: "text",
-            text: "❌ ชื่อเล่นสั้นเกินไป"
-          });
-        }
+        if (nick.length < 2)
+          return reply(event, { type: "text", text: "❌ ชื่อเล่นสั้นเกินไป" });
+
         p.nickName = nick;
         return reply(event, {
           type: "text",
@@ -185,12 +198,18 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           text:
 `👤 LINE: ${p.lineName}
 🎮 ระบบ: ${displayName(p)}
-👑 สถานะ: ${p.role === "admin" ? "แอดมิน" : "ผู้เล่น"}`
+👑 สถานะ: ${
+  p.role === "owner"
+    ? "แอดมินหลัก"
+    : p.role === "admin"
+    ? "แอดมินย่อย"
+    : "ผู้เล่น"
+}`
         });
       }
 
-      /* ================== SECRET SUMMARY (ADMIN) ================== */
-      if (text.startsWith("/summary") && p.role === "admin") {
+      /* ================== SECRET SUMMARY (OWNER ONLY) ================== */
+      if (text.startsWith("/summary") && p.role === "owner") {
         if (text === "/summary off") {
           game.summaryMode = "off";
           return reply(event, { type: "text", text: "🔕 ปิดการสรุปยอดแล้ว" });
@@ -205,8 +224,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         }
       }
 
-      /* ================== ADMIN ================== */
-      if (text === "เปิดรอบ" && p.role === "admin") {
+      /* ================== OPEN / CLOSE ROUND (OWNER + SUB) ================== */
+      if (text === "เปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
         game.round++;
         game.status = "open";
         Object.values(game.players).forEach(pl => (pl.bets = {}));
@@ -216,7 +235,7 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         });
       }
 
-      if (text === "ปิดรอบ" && p.role === "admin") {
+      if (text === "ปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
         game.status = "close";
         return reply(event, {
           type: "text",
@@ -231,9 +250,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         const amt = parseInt(m[2], 10);
         const cost = legs.length * amt;
 
-        if (p.credit < cost) {
+        if (p.credit < cost)
           return reply(event, { type: "text", text: "❌ เครดิตไม่พอแทง" });
-        }
 
         p.credit -= cost;
         legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
@@ -248,8 +266,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         });
       }
 
-      /* ================== RESULT INPUT ================== */
-      if (/^S/i.test(text) && p.role === "admin") {
+      /* ================== RESULT INPUT (OWNER + SUB) ================== */
+      if (/^S/i.test(text) && (p.role === "owner" || p.role === "admin")) {
         const cards = parseResult(text);
         const banker = cards[cards.length - 1];
         const bankerPoint = calcPoint(banker);
@@ -261,13 +279,12 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         }));
 
         game.tempResult = { cards };
-
         return reply(event, resultFlex(game.round, bankerPoint, legs));
       }
 
-      /* ================== CONFIRM ================== */
+      /* ================== CONFIRM (OWNER + SUB) ================== */
       if ((text === "y" || text === "Y") &&
-          p.role === "admin" &&
+          (p.role === "owner" || p.role === "admin") &&
           game.tempResult) {
 
         const banker = game.tempResult.cards[6];
@@ -298,8 +315,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           });
         }
 
-        /* ===== SUMMARY ===== */
-        if (game.summaryMode !== "off") {
+        /* ===== SUMMARY (OWNER ONLY) ===== */
+        if (game.summaryMode !== "off" && p.role === "owner") {
           const list = Object.values(game.players).filter(p => p.credit > 0);
 
           if (game.summaryMode === "text") {
