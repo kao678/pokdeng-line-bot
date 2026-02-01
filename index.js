@@ -4,6 +4,18 @@ const line = require("@line/bot-sdk");
 const axios = require("axios");
 const vision = require("@google-cloud/vision");
 
+/* ================== FINANCE CONFIG ================== */
+const FINANCE_CONFIG = {
+  MIN_DEPOSIT: 300,        // ฝากขั้นต่ำ (บาท)
+  MIN_WITHDRAW: 500,       // ถอนขั้นต่ำ (บาท)
+
+  // ชื่อบัญชีผู้รับเงิน (ต้องตรงกับในสลิป)
+  RECEIVER_NAMES: [
+    "นาง ชนากา กองสูง",
+    "ชนากา กองสูง"
+  ]
+};
+
 /* ================== CONFIG ================== */
 const config = {
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
