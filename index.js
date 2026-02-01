@@ -145,22 +145,33 @@ async function handleEvent(event) {
     return reply(event, `💰 เครดิต: ${p.credit}`);
 
   /* ===== BET ===== */
-  const bet = text.match(/^ขา([1-6,]+)\/(\d+)$/);
-  if (bet) {
-    if (gameState.status !== "open")
-      return reply(event, "❌ ยังไม่เปิดรอบ");
+  // รับโพย (รองรับ 1,3/100 และ ขา1,3/100)
+const m = text.match(/^(?:ขา)?([1-6](?:,[1-6])*)\/(\d+)$/);
+if (m) {
+  if (gameState.status !== "open")
+    return reply(event, "❌ ปิดรอบแล้ว");
 
-    const legs = bet[1].split(",");
-    const amt = parseInt(bet[2]);
-    const cost = legs.length * amt;
+  const legs = m[1].split(",").map(Number);
+  const amt = parseInt(m[2], 10);
+  const cost = legs.length * amt;
 
-    if (p.credit < cost)
-      return reply(event, "❌ เครดิตไม่พอ");
+  if (amt <= 0)
+    return reply(event, "❌ จำนวนเงินไม่ถูกต้อง");
 
-    p.credit -= cost;
-    legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
-    return reply(event, "✅ รับโพยแล้ว");
-  }
+  if (p.credit < cost)
+    return reply(event, "❌ เครดิตไม่พอ");
+
+  p.credit -= cost;
+
+  legs.forEach(l => {
+    p.bets[l] = (p.bets[l] || 0) + amt;
+  });
+
+  return reply(
+    event,
+    `✅ รับโพยแล้ว\n🎯 ขา: ${legs.join(",")}\n💵 ขาละ: ${amt}\n💰 เครดิตคงเหลือ: ${p.credit}`
+  );
+}
 
   /* ===== ADMIN ===== */
   if (text === "เปิดรอบ" && isAdmin(uid)) {
