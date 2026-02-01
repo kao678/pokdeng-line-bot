@@ -6,8 +6,8 @@ const vision = require("@google-cloud/vision");
 
 /* ================== CONFIG ================== */
 const config = {
-  channelAccessToken: "YOUR_CHANNEL_ACCESS_TOKEN",
-  channelSecret: "YOUR_CHANNEL_SECRET"
+  channelAccessToken: process.env.LINE_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
 const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // ใส่ LINE ID แอดมิน
@@ -21,8 +21,8 @@ const app = express();
 let gameState = {
   round: 0,
   status: "close",
-  players: {},        // userId => player
-  usedSlips: new Set() // กันสลิปซ้ำ
+  players: {},
+  usedSlips: new Set()
 };
 
 /* ================== UTILS ================== */
@@ -60,7 +60,7 @@ async function downloadSlip(messageId) {
 
 async function readSlipText(buffer) {
   const [result] = await ocrClient.textDetection({ image: { content: buffer } });
-  return result.fullTextAnnotation.text;
+  return result.fullTextAnnotation?.text || "";
 }
 
 function extractAmount(text) {
@@ -86,21 +86,25 @@ function creditMenuFlex() {
         spacing: "md",
         contents: [
           { type: "text", text: "💰 เมนูเครดิต", weight: "bold", size: "lg" },
-          { type: "button", style: "primary", color: "#1DB954",
-            action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" } },
-          { type: "button", style: "primary", color: "#E53935",
-            action: { type: "message", label: "📤 ถอนเครดิต", text: "เมนูถอน" } },
-          { type: "button", style: "secondary",
-            action: { type: "message", label: "💳 เช็คเครดิต", text: "เครดิต" } }
+          {
+            type: "button",
+            style: "primary",
+            color: "#1DB954",
+            action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            action: { type: "message", label: "💳 เช็คเครดิต", text: "เครดิต" }
+          }
         ]
       }
     }
   };
 }
 
-/* ================== FLEX RESULT ================== */
 function buildResultFlex(player) {
-  const lines = Object.keys(player.results).map(leg => {
+  const lines = Object.keys(player.results || {}).map(leg => {
     const r = player.results[leg];
     return {
       type: "text",
@@ -123,8 +127,6 @@ function buildResultFlex(player) {
           { type: "text", text: `👤 ${player.name}` },
           ...lines,
           { type: "separator" },
-          { type: "text", text: `💵 แทงรวม : ${player.totalBet}` },
-          { type: "text", text: `📊 ผลสุทธิ : ${player.winLose}` },
           { type: "text", text: `💰 เครดิต : ${player.credit}` }
         ]
       }
@@ -134,129 +136,145 @@ function buildResultFlex(player) {
 
 /* ================== HANDLER ================== */
 async function handleEvent(event) {
-  const uid = event.source.userId;
-  const name = uid;
+  try {
+    // 👉 กัน webhook verify / event แปลก
+    if (!event || !event.type) return null;
+    if (event.type !== "message") return null;
 
-  if (!gameState.players[uid]) {
-    gameState.players[uid] = {
-      userId: uid,
-      name,
-      bets: {},
-      results: {},
-      totalBet: 0,
-      winLose: 0,
-      credit: 0,
-      pendingDeposit: 0
-    };
-  }
+    const uid = event.source?.userId;
+    if (!uid) return null;
 
-  const p = gameState.players[uid];
+    // เตรียม player
+    if (!gameState.players[uid]) {
+      gameState.players[uid] = {
+        userId: uid,
+        name: uid,
+        bets: {},
+        results: {},
+        totalBet: 0,
+        winLose: 0,
+        credit: 0,
+        pendingDeposit: 0
+      };
+    }
+    const p = gameState.players[uid];
+    const msg = event.message;
 
-  /* ---------- IMAGE (SLIP) ---------- */
-  if (event.message.type === "image") {
-    if (p.pendingDeposit <= 0)
-      return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
+    /* ---------- IMAGE (SLIP OCR) ---------- */
+    if (msg.type === "image") {
+      if (p.pendingDeposit <= 0)
+        return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
 
-    const buffer = await downloadSlip(event.message.id);
-    const text = await readSlipText(buffer);
+      const buffer = await downloadSlip(msg.id);
+      const text = await readSlipText(buffer);
 
-    const tx = extractTX(text);
-    if (tx && gameState.usedSlips.has(tx))
-      return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
+      const tx = extractTX(text);
+      if (tx && gameState.usedSlips.has(tx))
+        return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
 
-    const amount = extractAmount(text);
-    if (amount !== p.pendingDeposit)
-      return reply(event, "❌ ยอดเงินในสลิปไม่ตรง");
+      const amount = extractAmount(text);
+      if (!amount || amount !== p.pendingDeposit)
+        return reply(event, "❌ ยอดเงินในสลิปไม่ตรง");
 
-    if (tx) gameState.usedSlips.add(tx);
+      if (tx) gameState.usedSlips.add(tx);
 
-    p.credit += amount;
-    p.pendingDeposit = 0;
+      p.credit += amount;
+      p.pendingDeposit = 0;
 
-    return reply(event, `✅ ฝากเครดิตสำเร็จ\n💰 เครดิตปัจจุบัน: ${p.credit}`);
-  }
-
-  if (event.message.type !== "text") return;
-  const text = event.message.text.trim();
-
-  /* ---------- CREDIT ---------- */
-  if (text === "เมนูเครดิต") return replyFlex(event, creditMenuFlex());
-  if (text === "เครดิต") return reply(event, `💰 เครดิต: ${p.credit}`);
-
-  if (text === "เมนูฝาก") {
-    p.pendingDeposit = 1000;
-    return reply(event, "📸 กรุณาแนบสลิปยอด 1,000 บาท");
-  }
-
-  /* ---------- ADMIN ---------- */
-  if (text === "เปิดรอบ" && isAdmin(uid)) {
-    gameState.round++;
-    gameState.status = "open";
-    gameState.players = {};
-    return reply(event, `🟢 เปิดรอบ #${gameState.round}`);
-  }
-
-  if (text === "ปิดรอบ" && isAdmin(uid)) {
-    gameState.status = "close";
-    return reply(event, `🔴 ปิดรอบ #${gameState.round}`);
-  }
-
-  /* ---------- BET ---------- */
-  const m = text.match(/^ขา([1-6,]+)\/(\d+)$/);
-  if (m) {
-    if (gameState.status !== "open") return reply(event, "❌ ปิดรอบแล้ว");
-
-    const legs = m[1].split(",");
-    const amt = parseInt(m[2]);
-    const cost = legs.length * amt;
-
-    if (p.credit < cost) return reply(event, "❌ เครดิตไม่พอ");
-
-    p.credit -= cost;
-    p.totalBet += cost;
-
-    legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
-    return reply(event, "✅ รับโพยแล้ว");
-  }
-
-  /* ---------- RESULT ---------- */
-  if (text.startsWith("ผล") && isAdmin(uid)) {
-    const cards = parseResult(text);
-    const banker = cards[cards.length - 1];
-
-    for (const id in gameState.players) {
-      const pl = gameState.players[id];
-      let net = 0;
-      pl.results = {};
-
-      for (const leg in pl.bets) {
-        const bet = pl.bets[leg];
-        const r = compare(cards[leg - 1], banker);
-
-        let val = 0, label = "เสมอ", icon = "➖";
-        if (r === 2) { val = bet * 2; label = "เด้ง"; icon = "✅"; }
-        if (r === 1) { val = bet; label = "ชนะ"; icon = "✅"; }
-        if (r === -1) { val = -bet; label = "แพ้"; icon = "❌"; }
-        if (r === -2) { val = -bet * 2; label = "แพ้เด้ง"; icon = "❌"; }
-
-        net += val;
-        pl.results[leg] = { net: val, text: label, icon };
-      }
-
-      pl.winLose = net;
-      pl.credit += net;
-      await client.pushMessage(id, buildResultFlex(pl));
+      return reply(event, `✅ ฝากเครดิตสำเร็จ\n💰 เครดิตปัจจุบัน: ${p.credit}`);
     }
 
-    return reply(event, "✅ คำนวณและส่งผลเรียบร้อย");
+    /* ---------- TEXT ---------- */
+    if (msg.type !== "text") return null;
+    const text = msg.text.trim();
+
+    // เมนูเครดิต
+    if (text === "เมนูเครดิต") return replyFlex(event, creditMenuFlex());
+    if (text === "เครดิต") return reply(event, `💰 เครดิต: ${p.credit}`);
+
+    // ฝาก (ตัวอย่างตั้งยอดตาย 1000)
+    if (text === "เมนูฝาก") {
+      p.pendingDeposit = 1000;
+      return reply(event, "📸 กรุณาแนบสลิปยอด 1,000 บาท");
+    }
+
+    // เปิด / ปิดรอบ
+    if (text === "เปิดรอบ" && isAdmin(uid)) {
+      gameState.round++;
+      gameState.status = "open";
+      gameState.players = {};
+      return reply(event, `🟢 เปิดรอบ #${gameState.round}`);
+    }
+
+    if (text === "ปิดรอบ" && isAdmin(uid)) {
+      gameState.status = "close";
+      return reply(event, `🔴 ปิดรอบ #${gameState.round}`);
+    }
+
+    // รับโพย
+    const m = text.match(/^ขา([1-6,]+)\/(\d+)$/);
+    if (m) {
+      if (gameState.status !== "open")
+        return reply(event, "❌ ปิดรอบแล้ว");
+
+      const legs = m[1].split(",");
+      const amt = parseInt(m[2]);
+      const cost = legs.length * amt;
+
+      if (p.credit < cost)
+        return reply(event, "❌ เครดิตไม่พอ");
+
+      p.credit -= cost;
+      legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
+      return reply(event, "✅ รับโพยแล้ว");
+    }
+
+    // ใส่ผล
+    if (text.startsWith("ผล") && isAdmin(uid)) {
+      const cards = parseResult(text);
+      const banker = cards[cards.length - 1];
+
+      for (const id in gameState.players) {
+        const pl = gameState.players[id];
+        pl.results = {};
+        let net = 0;
+
+        for (const leg in pl.bets) {
+          const bet = pl.bets[leg];
+          const r = compare(cards[leg - 1], banker);
+
+          let val = 0, label = "เสมอ", icon = "➖";
+          if (r === 2) { val = bet * 2; label = "เด้ง"; icon = "✅"; }
+          if (r === 1) { val = bet; label = "ชนะ"; icon = "✅"; }
+          if (r === -1) { val = -bet; label = "แพ้"; icon = "❌"; }
+          if (r === -2) { val = -bet * 2; label = "แพ้เด้ง"; icon = "❌"; }
+
+          net += val;
+          pl.results[leg] = { net: val, text: label, icon };
+        }
+
+        pl.credit += net;
+        await client.pushMessage(id, buildResultFlex(pl));
+      }
+
+      return reply(event, "✅ คำนวณและส่งผลเรียบร้อย");
+    }
+
+    return null;
+  } catch (err) {
+    console.error("HANDLE EVENT ERROR:", err);
+    return null;
   }
 }
 
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
-    .then(() => res.end())
-    .catch(err => { console.error(err); res.status(500).end(); });
+    .then(() => res.status(200).end())
+    .catch(err => {
+      console.error("WEBHOOK ERROR:", err);
+      res.status(200).end(); // ❗ สำคัญ: ห้ามส่ง 500
+    });
 });
 
 /* ================== REPLY ================== */
