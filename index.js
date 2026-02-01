@@ -6,10 +6,8 @@ const vision = require("@google-cloud/vision");
 
 /* ================== FINANCE CONFIG ================== */
 const FINANCE_CONFIG = {
-  MIN_DEPOSIT: 300,        // ฝากขั้นต่ำ (บาท)
-  MIN_WITHDRAW: 500,       // ถอนขั้นต่ำ (บาท)
-
-  // ชื่อบัญชีผู้รับเงิน (ต้องตรงกับในสลิป)
+  MIN_DEPOSIT: 300,
+  MIN_WITHDRAW: 500,
   RECEIVER_NAMES: [
     "นาง ชนากา กองสูง",
     "ชนากา กองสูง"
@@ -48,7 +46,6 @@ const isDeng = cards => cards.length === 2 && calcPoint(cards) >= 8;
 function compare(playerCards, bankerCards) {
   const p = calcPoint(playerCards);
   const b = calcPoint(bankerCards);
-
   if (isDeng(playerCards) && !isDeng(bankerCards)) return 2;
   if (!isDeng(playerCards) && isDeng(bankerCards)) return -2;
   if (p > b) return 1;
@@ -83,6 +80,12 @@ function extractAmount(text) {
 function extractTX(text) {
   const m = text.match(/(Transaction|TX|Ref).*?(\w+)/i);
   return m ? m[2] : null;
+}
+
+function matchReceiverName(ocrText) {
+  return FINANCE_CONFIG.RECEIVER_NAMES.some(name =>
+    ocrText.includes(name)
+  );
 }
 
 /* ================== FLEX ================== */
@@ -145,102 +148,74 @@ function buildResultFlex(player) {
     }
   };
 }
-function matchReceiverName(ocrText) {
-  return FINANCE_CONFIG.RECEIVER_NAMES.some(name =>
-    ocrText.includes(name)
-  );
-}
 
 /* ================== HANDLER ================== */
 async function handleEvent(event) {
   try {
-    // 👉 กัน webhook verify / event แปลก
-    if (!event || !event.type) return null;
-    if (event.type !== "message") return null;
+    if (!event || event.type !== "message") return null;
 
     const uid = event.source?.userId;
     if (!uid) return null;
 
-    // เตรียม player
     if (!gameState.players[uid]) {
       gameState.players[uid] = {
         userId: uid,
         name: uid,
         bets: {},
         results: {},
-        totalBet: 0,
-        winLose: 0,
         credit: 0,
         pendingDeposit: 0
       };
     }
+
     const p = gameState.players[uid];
     const msg = event.message;
 
-/* ---------- IMAGE (SLIP OCR) ---------- */
-if (msg.type === "image") {
-  if (p.pendingDeposit <= 0)
-    return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
+    /* ---------- IMAGE (SLIP OCR) ---------- */
+    if (msg.type === "image") {
+      if (p.pendingDeposit <= 0)
+        return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
 
-  const buffer = await downloadSlip(msg.id);
-  const ocrText = await readSlipText(buffer);
+      const buffer = await downloadSlip(msg.id);
+      const ocrText = await readSlipText(buffer);
 
-  // 🔐 ตรวจชื่อบัญชีปลายทาง
-  if (!matchReceiverName(ocrText)) {
-    return reply(
-      event,
-      "❌ ชื่อบัญชีปลายทางไม่ถูกต้อง\nกรุณาโอนเข้าบัญชีที่ระบบกำหนด"
-    );
-  }
+      if (!matchReceiverName(ocrText))
+        return reply(event, "❌ ชื่อบัญชีปลายทางไม่ถูกต้อง");
 
-  // 🔁 กันสลิปซ้ำ
-  const tx = extractTX(ocrText);
-  if (tx && gameState.usedSlips.has(tx)) {
-    return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
-  }
+      const tx = extractTX(ocrText);
+      if (tx && gameState.usedSlips.has(tx))
+        return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
 
-  // 💵 อ่านยอดเงิน
-  const amount = extractAmount(ocrText);
-  if (!amount || amount <= 0) {
-    return reply(event, "❌ ไม่สามารถอ่านยอดเงินจากสลิปได้");
-  }
+      const amount = extractAmount(ocrText);
+      if (!amount || amount < FINANCE_CONFIG.MIN_DEPOSIT)
+        return reply(
+          event,
+          `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท`
+        );
 
-  // ⛔ ฝากขั้นต่ำ
-  if (amount < FINANCE_CONFIG.MIN_DEPOSIT) {
-    return reply(
-      event,
-      `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท\nยอดของคุณ: ${amount} บาท`
-    );
-  }
+      if (tx) gameState.usedSlips.add(tx);
 
-  // ✅ บันทึกสลิปว่าใช้แล้ว
-  if (tx) gameState.usedSlips.add(tx);
+      p.credit += amount;
+      p.pendingDeposit = 0;
 
-  // ✅ เติมเครดิต (ครั้งเดียว)
-  p.credit += amount;
-  p.pendingDeposit = 0;
+      return reply(
+        event,
+        `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
+      );
+    }
 
-  return reply(
-    event,
-    `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
-  );
-}
-    
     /* ---------- TEXT ---------- */
     if (msg.type !== "text") return null;
     const text = msg.text.trim();
 
-    // เมนูเครดิต
     if (text === "เมนูเครดิต") return replyFlex(event, creditMenuFlex());
     if (text === "เครดิต") return reply(event, `💰 เครดิต: ${p.credit}`);
 
-    // ฝาก (ตัวอย่างตั้งยอดตาย 1000)
     if (text === "เมนูฝาก") {
       p.pendingDeposit = -1;
-      return reply(event, "📸 กรุณาแนบสลิปยอด 1,000 บาท");
+      return reply(event, "📸 กรุณาแนบสลิปโอนเงิน (ระบบอ่านยอดอัตโนมัติ)");
     }
 
-    // เปิด / ปิดรอบ
     if (text === "เปิดรอบ" && isAdmin(uid)) {
       gameState.round++;
       gameState.status = "open";
@@ -253,7 +228,6 @@ if (msg.type === "image") {
       return reply(event, `🔴 ปิดรอบ #${gameState.round}`);
     }
 
-    // รับโพย
     const m = text.match(/^ขา([1-6,]+)\/(\d+)$/);
     if (m) {
       if (gameState.status !== "open")
@@ -271,7 +245,6 @@ if (msg.type === "image") {
       return reply(event, "✅ รับโพยแล้ว");
     }
 
-    // ใส่ผล
     if (text.startsWith("ผล") && isAdmin(uid)) {
       const cards = parseResult(text);
       const banker = cards[cards.length - 1];
@@ -313,10 +286,7 @@ if (msg.type === "image") {
 app.post("/webhook", line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
     .then(() => res.status(200).end())
-    .catch(err => {
-      console.error("WEBHOOK ERROR:", err);
-      res.status(200).end(); // ❗ สำคัญ: ห้ามส่ง 500
-    });
+    .catch(() => res.status(200).end());
 });
 
 /* ================== REPLY ================== */
