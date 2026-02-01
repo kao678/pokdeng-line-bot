@@ -9,7 +9,7 @@ const config = {
 };
 
 /* 🔴 ใส่ Group ID หลังจากเช็ค */
-const ALLOWED_GROUP = "Cxxxxxxxxxxxxxxxxxxxx";
+const ALLOWED_GROUP = "C682703c2206d1abb1adb7f7c2ca8284c";
 
 /* ================== INIT ================== */
 const app = express();
