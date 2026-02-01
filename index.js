@@ -80,12 +80,14 @@ async function getPlayerName(event, uid) {
 
 const displayName = p => p.nickName || p.lineName;
 
-/* ================== WEBHOOK ================== */
+/* ================== WEBHOOK (ถูกต้อง) ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
     for (const event of req.body.events) {
-      app.post("/webhook", line.middleware(config), async (req, res) => {
-        
+
+      // DEBUG (เปิดได้ถ้าจำเป็น)
+      // console.log("EVENT:", JSON.stringify(event));
+
       if (event.type !== "message") continue;
       if (event.message.type !== "text") continue;
 
@@ -141,7 +143,7 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
       /* ✏️ NICK */
       if (text.startsWith("nick ")) {
-        p.nickName = text.replace("nick ", "");
+        p.nickName = text.replace("nick ", "").trim();
         return reply(event, flexText(
           "✅ ตั้งชื่อสำเร็จ",
           `ชื่อใหม่: ${p.nickName}`
@@ -246,4 +248,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
 /* ================== SERVER ================== */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("BOT RUNNING", PORT));
+app.listen(PORT, () =>
+  console.log("BOT RUNNING ON PORT", PORT)
+);
