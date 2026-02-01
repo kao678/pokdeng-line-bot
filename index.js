@@ -10,11 +10,11 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // ใส่ LINE ID แอดมิน
+const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // ใส่ LINE ID แอดมินจริง
 
 /* ================== FINANCE CONFIG ================== */
 const FINANCE_CONFIG = {
-  MIN_DEPOSIT: 300,
+  MIN_DEPOSIT: 0,
   RECEIVER_NAMES: ["นาง ชนากา กองสูง", "ชนากา กองสูง"]
 };
 
@@ -59,7 +59,7 @@ function parseResult(text) {
     .replace("ผล", "")
     .trim()
     .split(",")
-    .map(x => x.split("").map(n => parseInt(n)));
+    .map(x => x.split("").map(n => parseInt(n, 10)));
 }
 
 /* ================== OCR ================== */
@@ -73,7 +73,9 @@ async function downloadSlip(messageId) {
 }
 
 async function readSlipText(buffer) {
-  const [result] = await ocrClient.textDetection({ image: { content: buffer } });
+  const [result] = await ocrClient.textDetection({
+    image: { content: buffer }
+  });
   return result.fullTextAnnotation?.text || "";
 }
 
@@ -100,8 +102,7 @@ async function handleEvent(event) {
   if (!gameState.players[uid]) {
     gameState.players[uid] = {
       credit: 0,
-      bets: {},
-      pendingDeposit: false
+      bets: {}
     };
   }
 
@@ -118,14 +119,16 @@ async function handleEvent(event) {
 
     const tx = extractTX(text);
     if (tx && gameState.usedSlips.has(tx))
-      return reply(event, "❌ สลิปซ้ำ");
+      return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
 
     const amount = extractAmount(text);
     if (!amount || amount < FINANCE_CONFIG.MIN_DEPOSIT)
-      return reply(event, `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท`);
+      return reply(
+        event,
+        `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท`
+      );
 
     p.credit += amount;
-    p.pendingDeposit = false;
     if (tx) gameState.usedSlips.add(tx);
 
     return reply(
@@ -139,39 +142,37 @@ async function handleEvent(event) {
 
   /* ===== USER ===== */
   if (text === "เมนูฝาก")
-    return reply(event, "📸 กรุณาแนบสลิปโอนเงิน");
+    return reply(event, "📸 กรุณาแนบสลิปโอนเงินได้เลย");
 
   if (text === "เครดิต")
     return reply(event, `💰 เครดิต: ${p.credit}`);
 
   /* ===== BET ===== */
-  // รับโพย (รองรับ 1,3/100 และ ขา1,3/100)
-const m = text.match(/^(?:ขา)?([1-6](?:,[1-6])*)\/(\d+)$/);
-if (m) {
-  if (gameState.status !== "open")
-    return reply(event, "❌ ปิดรอบแล้ว");
+  const m = text.match(/^(?:ขา)?([1-6](?:,[1-6])*)\/(\d+)$/);
+  if (m) {
+    if (gameState.status !== "open")
+      return reply(event, "❌ ปิดรอบแล้ว");
 
-  const legs = m[1].split(",").map(Number);
-  const amt = parseInt(m[2], 10);
-  const cost = legs.length * amt;
+    const legs = m[1].split(",").map(Number);
+    const amt = parseInt(m[2], 10);
+    const cost = legs.length * amt;
 
-  if (amt <= 0)
-    return reply(event, "❌ จำนวนเงินไม่ถูกต้อง");
+    if (amt <= 0)
+      return reply(event, "❌ จำนวนเงินไม่ถูกต้อง");
 
-  if (p.credit < cost)
-    return reply(event, "❌ เครดิตไม่พอ");
+    if (p.credit < cost)
+      return reply(event, "❌ เครดิตไม่พอ");
 
-  p.credit -= cost;
+    p.credit -= cost;
+    legs.forEach(l => {
+      p.bets[l] = (p.bets[l] || 0) + amt;
+    });
 
-  legs.forEach(l => {
-    p.bets[l] = (p.bets[l] || 0) + amt;
-  });
-
-  return reply(
-    event,
-    `✅ รับโพยแล้ว\n🎯 ขา: ${legs.join(",")}\n💵 ขาละ: ${amt}\n💰 เครดิตคงเหลือ: ${p.credit}`
-  );
-}
+    return reply(
+      event,
+      `✅ รับโพยแล้ว\n🎯 ขา: ${legs.join(",")}\n💵 ขาละ: ${amt}\n💰 เครดิตคงเหลือ: ${p.credit}`
+    );
+  }
 
   /* ===== ADMIN ===== */
   if (text === "เปิดรอบ" && isAdmin(uid)) {
@@ -193,29 +194,30 @@ if (m) {
     for (const id in gameState.players) {
       const pl = gameState.players[id];
       let net = 0;
-      let msg = `🎴 ผลรอบ #${gameState.round}\n`;
+      let summary = `🎴 ผลรอบ #${gameState.round}\n`;
 
       for (const leg in pl.bets) {
         const r = compare(cards[leg - 1], banker);
-        const betAmt = pl.bets[leg];
+        const bet = pl.bets[leg];
         let val = 0;
 
-        if (r === 2) val = betAmt * 2;
-        if (r === 1) val = betAmt;
-        if (r === -1) val = -betAmt;
-        if (r === -2) val = -betAmt * 2;
+        if (r === 2) val = bet * 2;
+        if (r === 1) val = bet;
+        if (r === -1) val = -bet;
+        if (r === -2) val = -bet * 2;
 
         net += val;
-        msg += `ขา ${leg} : ${val}\n`;
+        summary += `ขา ${leg} : ${val}\n`;
       }
 
       pl.credit += net;
       pl.bets = {};
-      msg += `💰 คงเหลือ ${pl.credit}`;
-      await client.pushMessage(id, { type: "text", text: msg });
+      summary += `💰 เครดิตคงเหลือ: ${pl.credit}`;
+
+      await client.pushMessage(id, { type: "text", text: summary });
     }
 
-    return reply(event, "✅ สรุปผลเรียบร้อย");
+    return reply(event, "✅ คำนวณผลเรียบร้อย");
   }
 
   return null;
