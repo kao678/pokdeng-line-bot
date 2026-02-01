@@ -85,6 +85,12 @@ function extractTX(text) {
   return m ? m[2] : null;
 }
 
+function matchReceiverName(ocrText) {
+  return FINANCE_CONFIG.RECEIVER_NAMES.some(name =>
+    ocrText.includes(name)
+  );
+}
+
 /* ================== FLEX ================== */
 function creditMenuFlex() {
   return {
