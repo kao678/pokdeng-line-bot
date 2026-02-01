@@ -177,40 +177,55 @@ async function handleEvent(event) {
     const p = gameState.players[uid];
     const msg = event.message;
 
-    /* ---------- IMAGE (SLIP OCR) ---------- */
-    if (msg.type === "image") {
-      if (p.pendingDeposit <= 0)
-        return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
+/* ---------- IMAGE (SLIP OCR) ---------- */
+if (msg.type === "image") {
+  if (p.pendingDeposit <= 0)
+    return reply(event, "❌ ไม่มีรายการฝากค้างอยู่");
 
-      const buffer = await downloadSlip(msg.id);
-      const text = await readSlipText(buffer);
+  const buffer = await downloadSlip(msg.id);
+  const ocrText = await readSlipText(buffer);
 
-      const tx = extractTX(text);
-      if (tx && gameState.usedSlips.has(tx))
-        return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
+  // 🔐 ตรวจชื่อบัญชีปลายทาง
+  if (!matchReceiverName(ocrText)) {
+    return reply(
+      event,
+      "❌ ชื่อบัญชีปลายทางไม่ถูกต้อง\nกรุณาโอนเข้าบัญชีที่ระบบกำหนด"
+    );
+  }
 
-      const amount = extractAmount(text);
+  // 🔁 กันสลิปซ้ำ
+  const tx = extractTX(ocrText);
+  if (tx && gameState.usedSlips.has(tx)) {
+    return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
+  }
 
-if (!amount || amount <= 0)
-  return reply(event, "❌ ไม่สามารถอ่านยอดเงินจากสลิปได้");
+  // 💵 อ่านยอดเงิน
+  const amount = extractAmount(ocrText);
+  if (!amount || amount <= 0) {
+    return reply(event, "❌ ไม่สามารถอ่านยอดเงินจากสลิปได้");
+  }
 
-// เติมเครดิตตามยอดจริง
-p.credit += amount;
-p.pendingDeposit = 0;
+  // ⛔ ฝากขั้นต่ำ
+  if (amount < FINANCE_CONFIG.MIN_DEPOSIT) {
+    return reply(
+      event,
+      `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท\nยอดของคุณ: ${amount} บาท`
+    );
+  }
 
-return reply(
-  event,
-  `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
-);
+  // ✅ บันทึกสลิปว่าใช้แล้ว
+  if (tx) gameState.usedSlips.add(tx);
 
-      if (tx) gameState.usedSlips.add(tx);
+  // ✅ เติมเครดิต (ครั้งเดียว)
+  p.credit += amount;
+  p.pendingDeposit = 0;
 
-      p.credit += amount;
-      p.pendingDeposit = 0;
-
-      return reply(event, `✅ ฝากเครดิตสำเร็จ\n💰 เครดิตปัจจุบัน: ${p.credit}`);
-    }
-
+  return reply(
+    event,
+    `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
+  );
+}
+    
     /* ---------- TEXT ---------- */
     if (msg.type !== "text") return null;
     const text = msg.text.trim();
