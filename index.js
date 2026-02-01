@@ -173,8 +173,18 @@ async function handleEvent(event) {
         return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
 
       const amount = extractAmount(text);
-      if (!amount || amount !== p.pendingDeposit)
-        return reply(event, "❌ ยอดเงินในสลิปไม่ตรง");
+
+if (!amount || amount <= 0)
+  return reply(event, "❌ ไม่สามารถอ่านยอดเงินจากสลิปได้");
+
+// เติมเครดิตตามยอดจริง
+p.credit += amount;
+p.pendingDeposit = 0;
+
+return reply(
+  event,
+  `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
+);
 
       if (tx) gameState.usedSlips.add(tx);
 
