@@ -84,6 +84,8 @@ const displayName = p => p.nickName || p.lineName;
 app.post("/webhook", line.middleware(config), async (req, res) => {
   try {
     for (const event of req.body.events) {
+      app.post("/webhook", line.middleware(config), async (req, res) => {
+        
       if (event.type !== "message") continue;
       if (event.message.type !== "text") continue;
 
