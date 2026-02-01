@@ -1,6 +1,8 @@
+/* ================== IMPORT ================== */
 const express = require("express");
 const line = require("@line/bot-sdk");
 const { compare, calcPoint, parseResult } = require("./pokdeng");
+const { resultFlex } = require("./flex");
 
 /* ================== CONFIG ================== */
 const config = {
@@ -8,8 +10,10 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-/* 🔴 ใส่ Group ID หลังจากเช็ค */
-const ALLOWED_GROUP = "C682703c2206d1abb1adb7f7c2ca8284c";
+/* 🔴 UID แอดมิน */
+const ADMIN = [
+  "Uxxxxxxxxxxxxxxxxxxxxxxxx" // ← ใส่ UID แอดมินจริง
+];
 
 /* ================== INIT ================== */
 const app = express();
@@ -17,23 +21,43 @@ const client = new line.Client(config);
 
 /* ================== GAME STATE ================== */
 let game = {
-  round: 1,
-  status: "close",
+  round: 156,
+  status: "close", // open | close
   players: {},
-  tempResult: null
+  tempResult: null,
+  summaryMode: "off" // off | text | flex
 };
 
 /* ================== UTILS ================== */
 const reply = (event, msg) =>
   client.replyMessage(event.replyToken, msg);
 
-const isAllowedGroup = event =>
-  event.source.type === "group" &&
-  event.source.groupId === ALLOWED_GROUP;
+/* ===== ดึงชื่อจริงจาก LINE ===== */
+async function getPlayerName(event, uid) {
+  try {
+    if (event.source.type === "group") {
+      const profile = await client.getGroupMemberProfile(
+        event.source.groupId,
+        uid
+      );
+      return profile.displayName;
+    } else {
+      const profile = await client.getProfile(uid);
+      return profile.displayName;
+    }
+  } catch {
+    return "ไม่ทราบชื่อ";
+  }
+}
 
-/* ================== FLEX SUMMARY (TOP 3) ================== */
+/* ===== ชื่อที่ใช้แสดงผล ===== */
+function displayName(p) {
+  return p.nickName || p.lineName;
+}
+
+/* ===== FLEX SUMMARY TOP 3 ===== */
 function summaryFlex(round, players) {
-  const sorted = players.sort((a, b) => b.credit - a.credit);
+  const sorted = [...players].sort((a, b) => b.credit - a.credit);
 
   const rows = sorted.map((p, i) => {
     let color = "#FFFFFF";
@@ -46,8 +70,19 @@ function summaryFlex(round, players) {
       layout: "horizontal",
       contents: [
         { type: "text", text: `${i + 1}`, flex: 1, color },
-        { type: "text", text: p.name, flex: 4, color: "#FFFFFF" },
-        { type: "text", text: `💰 ${p.credit}`, flex: 3, align: "end", color }
+        {
+          type: "text",
+          text: displayName(p),
+          flex: 4,
+          color: "#FFFFFF"
+        },
+        {
+          type: "text",
+          text: `💰 ${p.credit}`,
+          flex: 3,
+          align: "end",
+          color
+        }
       ],
       margin: "sm"
     };
@@ -95,141 +130,154 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       const uid = event.source.userId;
       const text = event.message.text.trim();
 
-      /* ===== CHECK GROUP ID (ใช้ก่อนล็อกกลุ่ม) ===== */
-      if (text === "เช็คกลุ่ม" || text.toLowerCase() === "checkgroup") {
-        if (event.source.type === "group") {
-          return reply(event, {
-            type: "text",
-            text: `🆔 Group ID\n${event.source.groupId}`
-          });
-        } else {
-          return reply(event, {
-            type: "text",
-            text: "❌ คำสั่งนี้ใช้ได้เฉพาะในกลุ่ม"
-          });
-        }
-      }
-
-      /* ===== ล็อกกลุ่ม ===== */
-      if (!isAllowedGroup(event)) continue;
-
       /* ===== init player ===== */
       if (!game.players[uid]) {
+        const lineName = await getPlayerName(event, uid);
         game.players[uid] = {
-          name: "ไม่ระบุชื่อ",
           credit: 2000,
-          bets: {}
+          bets: {},
+          lineName,
+          nickName: null,
+          role: ADMIN.includes(uid) ? "admin" : "player"
         };
       }
       const p = game.players[uid];
 
-      /* ===== ตั้งชื่อ ===== */
-      if (text.startsWith("ชื่อ ")) {
-        p.name = text.replace("ชื่อ ", "").trim();
+      /* ================== TEST ================== */
+      if (text === "ทดสอบ") {
         return reply(event, {
           type: "text",
-          text: `✅ ตั้งชื่อเป็น ${p.name} เรียบร้อย`
+          text: "บอทตอบในกลุ่มได้แล้ว ✅"
         });
       }
 
-      /* ===== เติมเครดิต ===== */
-      const add = text.match(/^เติม\s+(.+)\s+(\d+)$/);
-      if (add) {
-        const [, name, amt] = add;
-        const target = Object.values(game.players)
-          .find(pl => pl.name === name);
+      /* ================== CHECK BALANCE ================== */
+      if (text === "ยอด" || text === "เครดิต") {
+        return reply(event, {
+          type: "text",
+          text:
+`💰 เครดิตคงเหลือ
+👤 ${displayName(p)}
+💵 ${p.credit}`
+        });
+      }
 
-        if (!target)
+      /* ================== SET NICKNAME ================== */
+      if (text.startsWith("nick ")) {
+        const nick = text.replace("nick ", "").trim();
+        if (nick.length < 2) {
           return reply(event, {
             type: "text",
-            text: "❌ ไม่พบผู้เล่นชื่อนี้"
+            text: "❌ ชื่อเล่นสั้นเกินไป"
           });
-
-        target.credit += Number(amt);
+        }
+        p.nickName = nick;
         return reply(event, {
           type: "text",
-          text: `💰 เติมเครดิตให้ ${name} +${amt}\nคงเหลือ ${target.credit}`
+          text: `✅ ตั้งชื่อเล่นเป็น ${p.nickName} เรียบร้อย`
         });
       }
 
-      /* ===== เปิดรอบ ===== */
-      if (text === "เปิดรอบ") {
+      /* ================== MY NAME ================== */
+      if (text === "myname") {
+        return reply(event, {
+          type: "text",
+          text:
+`👤 LINE: ${p.lineName}
+🎮 ระบบ: ${displayName(p)}
+👑 สถานะ: ${p.role === "admin" ? "แอดมิน" : "ผู้เล่น"}`
+        });
+      }
+
+      /* ================== SECRET SUMMARY (ADMIN) ================== */
+      if (text.startsWith("/summary") && p.role === "admin") {
+        if (text === "/summary off") {
+          game.summaryMode = "off";
+          return reply(event, { type: "text", text: "🔕 ปิดการสรุปยอดแล้ว" });
+        }
+        if (text === "/summary text") {
+          game.summaryMode = "text";
+          return reply(event, { type: "text", text: "📄 เปิดสรุปแบบข้อความ" });
+        }
+        if (text === "/summary flex") {
+          game.summaryMode = "flex";
+          return reply(event, { type: "text", text: "🎨 เปิดสรุปแบบ Flex" });
+        }
+      }
+
+      /* ================== ADMIN ================== */
+      if (text === "เปิดรอบ" && p.role === "admin") {
         game.round++;
         game.status = "open";
-        Object.values(game.players).forEach(pl => pl.bets = {});
+        Object.values(game.players).forEach(pl => (pl.bets = {}));
         return reply(event, {
           type: "text",
           text: `🟢 เปิดรอบ #${game.round}`
         });
       }
 
-      /* ===== ปิดรอบ + สรุป + เปิดใหม่ ===== */
-      if (text === "ปิดรอบ") {
+      if (text === "ปิดรอบ" && p.role === "admin") {
         game.status = "close";
-
-        const list = Object.values(game.players)
-          .filter(p => p.credit > 0);
-
-        await reply(event, {
+        return reply(event, {
           type: "text",
           text: `🔴 ปิดรอบ #${game.round}`
         });
-
-        await client.pushMessage(
-          event.source.groupId,
-          summaryFlex(game.round, list)
-        );
-
-        game.round++;
-        game.status = "open";
-        Object.values(game.players).forEach(pl => pl.bets = {});
-        return client.pushMessage(event.source.groupId, {
-          type: "text",
-          text: `🟢 เปิดรอบใหม่อัตโนมัติ #${game.round}`
-        });
       }
 
-      /* ===== รับโพย ===== */
+      /* ================== BET ================== */
       const m = text.match(/^([\d,]+)\/(\d+)$/);
       if (m && game.status === "open") {
         const legs = m[1].split(",").map(Number);
         const amt = parseInt(m[2], 10);
         const cost = legs.length * amt;
 
-        if (p.credit < cost)
-          return reply(event, { type: "text", text: "❌ เครดิตไม่พอ" });
+        if (p.credit < cost) {
+          return reply(event, { type: "text", text: "❌ เครดิตไม่พอแทง" });
+        }
 
         p.credit -= cost;
-        legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
+        legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
 
         return reply(event, {
           type: "text",
           text:
-`✅ ${p.name}
+`✅ รับโพย
+👤 ${displayName(p)}
 ขา ${legs.join(",")} = ${amt}
 💰 คงเหลือ ${p.credit}`
         });
       }
 
-      /* ===== ใส่ผล ===== */
-      if (/^S/i.test(text)) {
-        game.tempResult = parseResult(text);
-        return reply(event, {
-          type: "text",
-          text: "📊 รับผลแล้ว พิมพ์ y เพื่อยืนยัน"
-        });
+      /* ================== RESULT INPUT ================== */
+      if (/^S/i.test(text) && p.role === "admin") {
+        const cards = parseResult(text);
+        const banker = cards[cards.length - 1];
+        const bankerPoint = calcPoint(banker);
+
+        const legs = cards.slice(0, 6).map((c, i) => ({
+          no: i + 1,
+          win: compare(c, banker) > 0,
+          text: `${calcPoint(c)} แต้ม`
+        }));
+
+        game.tempResult = { cards };
+
+        return reply(event, resultFlex(game.round, bankerPoint, legs));
       }
 
-      /* ===== ยืนยันผล ===== */
-      if (text.toLowerCase() === "y" && game.tempResult) {
-        const banker = game.tempResult[6];
+      /* ================== CONFIRM ================== */
+      if ((text === "y" || text === "Y") &&
+          p.role === "admin" &&
+          game.tempResult) {
+
+        const banker = game.tempResult.cards[6];
 
         for (const id in game.players) {
           let net = 0;
           const pl = game.players[id];
 
           for (const leg in pl.bets) {
-            const r = compare(game.tempResult[leg - 1], banker);
+            const r = compare(game.tempResult.cards[leg - 1], banker);
             const bet = pl.bets[leg];
             if (r === 2) net += bet * 2;
             if (r === 1) net += bet;
@@ -243,10 +291,38 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           await client.pushMessage(id, {
             type: "text",
             text:
-`🎯 ${pl.name}
+`🎯 รอบ #${game.round}
+👤 ${displayName(pl)}
 ได้/เสีย ${net}
 💰 คงเหลือ ${pl.credit}`
           });
+        }
+
+        /* ===== SUMMARY ===== */
+        if (game.summaryMode !== "off") {
+          const list = Object.values(game.players).filter(p => p.credit > 0);
+
+          if (game.summaryMode === "text") {
+            let msg = `📋 สรุปยอดคงเหลือ รอบ #${game.round}\n\n`;
+            list
+              .sort((a, b) => b.credit - a.credit)
+              .forEach((p, i) => {
+                msg += `${i + 1}) ${displayName(p)} 💰 ${p.credit}\n`;
+              });
+            msg += `\n📌 รวมผู้เล่น ${list.length} คน`;
+
+            await client.pushMessage(event.source.groupId, {
+              type: "text",
+              text: msg
+            });
+          }
+
+          if (game.summaryMode === "flex") {
+            await client.pushMessage(
+              event.source.groupId,
+              summaryFlex(game.round, list)
+            );
+          }
         }
 
         game.tempResult = null;
@@ -258,8 +334,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
     }
 
     res.sendStatus(200);
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
     res.sendStatus(500);
   }
 });
@@ -267,5 +343,5 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 /* ================== SERVER ================== */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
-  console.log("BOT RUNNING", PORT)
+  console.log("BOT RUNNING ON PORT", PORT)
 );
