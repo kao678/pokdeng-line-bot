@@ -10,7 +10,7 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // ใส่ LINE ID แอดมินจริง
+const ADMIN_IDS = ["Uab107367b6017b2b5fede655841f715c"]; // ใส่ LINE ID แอดมินจริง
 
 /* ================== FINANCE CONFIG ================== */
 const FINANCE_CONFIG = {
