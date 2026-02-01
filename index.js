@@ -6,8 +6,7 @@ const vision = require("@google-cloud/vision");
 
 /* ================== FINANCE CONFIG ================== */
 const FINANCE_CONFIG = {
-  MIN_DEPOSIT: 300,
-  MIN_WITHDRAW: 500,
+  MIN_DEPOSIT: 300,       // ฝากขั้นต่ำ
   RECEIVER_NAMES: [
     "นาง ชนากา กองสูง",
     "ชนากา กองสูง"
@@ -20,7 +19,7 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // ใส่ LINE ID แอดมิน
+const ADMIN_IDS = ["Uxxxxxxxxxxxx"]; // LINE ID แอดมิน
 const client = new line.Client(config);
 const ocrClient = new vision.ImageAnnotatorClient();
 
@@ -82,11 +81,180 @@ function extractTX(text) {
   return m ? m[2] : null;
 }
 
-function matchReceiverName(ocrText) {
-  return FINANCE_CONFIG.RECEIVER_NAMES.some(name =>
-    ocrText.includes(name)
-  );
+function matchReceiverName(text) {
+  return FINANCE_CONFIG.RECEIVER_NAMES.some(n => text.includes(n));
 }
+
+/* ================== FLEX ================== */
+function creditMenuFlex() {
+  return {
+    type: "flex",
+    altText: "เมนูเครดิต",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "💰 เมนูเครดิต", weight: "bold", size: "lg" },
+          {
+            type: "button",
+            style: "primary",
+            color: "#1DB954",
+            action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            action: { type: "message", label: "💳 เช็คเครดิต", text: "เครดิต" }
+          }
+        ]
+      }
+    }
+  };
+}
+
+/* ================== HANDLER ================== */
+async function handleEvent(event) {
+  try {
+    if (!event || event.type !== "message") return null;
+    const uid = event.source?.userId;
+    if (!uid) return null;
+
+    if (!gameState.players[uid]) {
+      gameState.players[uid] = {
+        userId: uid,
+        name: uid,
+        bets: {},
+        results: {},
+        credit: 0
+      };
+    }
+
+    const p = gameState.players[uid];
+    const msg = event.message;
+
+    /* ---------- IMAGE (AUTO DEPOSIT) ---------- */
+    if (msg.type === "image") {
+      const buffer = await downloadSlip(msg.id);
+      const ocrText = await readSlipText(buffer);
+
+      if (!matchReceiverName(ocrText))
+        return reply(event, "❌ ชื่อบัญชีปลายทางไม่ถูกต้อง");
+
+      const tx = extractTX(ocrText);
+      if (tx && gameState.usedSlips.has(tx))
+        return reply(event, "❌ สลิปนี้ถูกใช้ไปแล้ว");
+
+      const amount = extractAmount(ocrText);
+      if (!amount || amount < FINANCE_CONFIG.MIN_DEPOSIT)
+        return reply(
+          event,
+          `❌ ฝากขั้นต่ำ ${FINANCE_CONFIG.MIN_DEPOSIT} บาท`
+        );
+
+      if (tx) gameState.usedSlips.add(tx);
+
+      p.credit += amount;
+
+      return reply(
+        event,
+        `✅ ฝากเครดิตสำเร็จ\n💵 ยอดฝาก: ${amount} บาท\n💰 เครดิตปัจจุบัน: ${p.credit}`
+      );
+    }
+
+    /* ---------- TEXT ---------- */
+    if (msg.type !== "text") return null;
+    const text = msg.text.trim();
+
+    if (text === "เมนูเครดิต") return replyFlex(event, creditMenuFlex());
+    if (text === "เครดิต") return reply(event, `💰 เครดิต: ${p.credit}`);
+    if (text === "เมนูฝาก")
+      return reply(event, "📸 แนบสลิปโอนเงินได้เลย (ระบบอ่านยอดอัตโนมัติ)");
+
+    if (text === "เปิดรอบ" && isAdmin(uid)) {
+      gameState.round++;
+      gameState.status = "open";
+      gameState.players = {};
+      return reply(event, `🟢 เปิดรอบ #${gameState.round}`);
+    }
+
+    if (text === "ปิดรอบ" && isAdmin(uid)) {
+      gameState.status = "close";
+      return reply(event, `🔴 ปิดรอบ #${gameState.round}`);
+    }
+
+    const m = text.match(/^ขา([1-6,]+)\/(\d+)$/);
+    if (m) {
+      if (gameState.status !== "open")
+        return reply(event, "❌ ปิดรอบแล้ว");
+
+      const legs = m[1].split(",");
+      const amt = parseInt(m[2]);
+      const cost = legs.length * amt;
+
+      if (p.credit < cost)
+        return reply(event, "❌ เครดิตไม่พอ");
+
+      p.credit -= cost;
+      legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
+      return reply(event, "✅ รับโพยแล้ว");
+    }
+
+    if (text.startsWith("ผล") && isAdmin(uid)) {
+      const cards = parseResult(text);
+      const banker = cards[cards.length - 1];
+
+      for (const id in gameState.players) {
+        const pl = gameState.players[id];
+        pl.results = {};
+        let net = 0;
+
+        for (const leg in pl.bets) {
+          const bet = pl.bets[leg];
+          const r = compare(cards[leg - 1], banker);
+
+          let val = 0;
+          if (r === 2) val = bet * 2;
+          if (r === 1) val = bet;
+          if (r === -1) val = -bet;
+          if (r === -2) val = -bet * 2;
+
+          net += val;
+        }
+
+        pl.credit += net;
+      }
+
+      return reply(event, "✅ คำนวณผลเรียบร้อย");
+    }
+
+    return null;
+  } catch (err) {
+    console.error("HANDLE ERROR:", err);
+    return null;
+  }
+}
+
+/* ================== WEBHOOK ================== */
+app.post("/webhook", line.middleware(config), (req, res) => {
+  Promise.all(req.body.events.map(handleEvent))
+    .then(() => res.status(200).end())
+    .catch(() => res.status(200).end());
+});
+
+/* ================== REPLY ================== */
+const reply = (event, text) =>
+  client.replyMessage(event.replyToken, { type: "text", text });
+
+const replyFlex = (event, flex) =>
+  client.replyMessage(event.replyToken, flex);
+
+/* ================== SERVER ================== */
+app.listen(process.env.PORT || 3000, () =>
+  console.log("BOT RUNNING")
+);}
 
 /* ================== FLEX ================== */
 function creditMenuFlex() {
