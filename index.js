@@ -1,6 +1,8 @@
 /* ================== IMPORT ================== */
 const express = require("express");
 const line = require("@line/bot-sdk");
+const axios = require("axios");
+const vision = require("@google-cloud/vision");
 const { compare, calcPoint, parseResult } = require("./pokdeng");
 const { resultFlex } = require("./flex");
 
@@ -10,30 +12,27 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
+/* ================== FINANCE ================== */
+let FINANCE = {
+  RECEIVER_NAMES: ["นาง ชนากา กองสูง", "ชนากา กองสูง"]
+};
+
 /* 👑 OWNER */
-const ADMIN_OWNER = [
-  "Uab107367b6017b2b5fede655841f715c"
-];
-
-/* 🟡 ADMIN SUB */
+const ADMIN_OWNER = ["Uab107367b6017b2b5fede655841f715c"];
 let ADMIN_SUB = [];
-
-/* 🔒 กลุ่มที่อนุญาต */
-let ALLOWED_GROUPS = [
-  "C682703c2206d1abb1adb7f7c2ca8284c"
-];
+let ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
 const app = express();
 const client = new line.Client(config);
+const ocrClient = new vision.ImageAnnotatorClient();
 
 /* ================== GAME STATE ================== */
 let game = {
   round: 156,
   status: "close",
   players: {},
-  tempResult: null,
-  summaryMode: "flex"
+  tempResult: null
 };
 
 /* ================== UTILS ================== */
@@ -57,24 +56,29 @@ const flexText = (title, body) => ({
   }
 });
 
-/* ================== HELPERS ================== */
-const isAllowedGroup = gid => ALLOWED_GROUPS.includes(gid);
-
-async function getPlayerName(event, uid) {
-  try {
-    if (event.source.type === "group") {
-      const p = await client.getGroupMemberProfile(event.source.groupId, uid);
-      return p.displayName;
-    } else {
-      const p = await client.getProfile(uid);
-      return p.displayName;
-    }
-  } catch {
-    return "ไม่ทราบชื่อ";
-  }
+/* ================== OCR HELPERS ================== */
+async function downloadSlip(messageId) {
+  const url = `https://api-data.line.me/v2/bot/message/${messageId}/content`;
+  const res = await axios.get(url, {
+    responseType: "arraybuffer",
+    headers: { Authorization: `Bearer ${config.channelAccessToken}` }
+  });
+  return res.data;
 }
 
-const displayName = p => p.nickName || p.lineName;
+async function readSlipText(buffer) {
+  const [result] = await ocrClient.textDetection({ image: { content: buffer } });
+  return result.fullTextAnnotation?.text || "";
+}
+
+const extractAmount = text =>
+  (text.replace(/,/g, "").match(/(\d+(\.\d{2})?)\s*บาท/) || [])[1];
+
+const extractTX = text =>
+  (text.match(/(TX|Ref|Transaction).*?([A-Z0-9]+)/i) || [])[2];
+
+const matchReceiver = text =>
+  FINANCE.RECEIVER_NAMES.some(n => text.includes(n));
 
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
@@ -82,185 +86,127 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
     for (const event of req.body.events) {
 
       if (event.type !== "message") continue;
-      if (event.message.type !== "text") continue;
-
       const uid = event.source.userId;
-      const text = event.message.text.trim();
-      const groupId = event.source.type === "group"
-        ? event.source.groupId
-        : null;
 
-      /* 🚫 AUTO BLOCK UNAUTHORIZED GROUP */
-      if (groupId && !isAllowedGroup(groupId)) {
-
-        for (const owner of ADMIN_OWNER) {
-          await client.pushMessage(owner, flexText(
-            "🚨 ตรวจพบกลุ่มเถื่อน",
-            `Group ID:\n${groupId}\n\nระบบปิดการทำงานในกลุ่มนี้แล้ว`
-          ));
-        }
-
-        await reply(event, flexText(
-          "❌ ไม่ได้รับอนุญาต",
-          "กลุ่มนี้ไม่ได้รับสิทธิ์ใช้งานบอท\nกรุณาติดต่อผู้ดูแล"
-        ));
-
-        continue; // ❗ สำคัญมาก
-      }
-
-      /* ===== INIT PLAYER ===== */
       if (!game.players[uid]) {
-        const lineName = await getPlayerName(event, uid);
-        let role = "player";
-        if (ADMIN_OWNER.includes(uid)) role = "owner";
-        else if (ADMIN_SUB.includes(uid)) role = "admin";
-
         game.players[uid] = {
-          credit: 2000,
+          credit: 0,
           bets: {},
-          lineName,
-          nickName: null,
-          role
+          pendingDeposit: false,
+          usedSlips: new Set(),
+          withdraw: null,
+          historyDeposit: [],
+          historyWithdraw: [],
+          role: ADMIN_OWNER.includes(uid)
+            ? "owner"
+            : ADMIN_SUB.includes(uid)
+            ? "admin"
+            : "player"
         };
       }
       const p = game.players[uid];
 
-      /* ================== BASIC ================== */
-      if (text === "ทดสอบ") {
-        return reply(event, flexText("✅ ระบบออนไลน์", "บอททำงานปกติ"));
-      }
+      /* ========== IMAGE = ฝาก ========== */
+      if (event.message.type === "image") {
+        if (!p.pendingDeposit)
+          return reply(event, flexText("❌ ไม่มีรายการฝาก", "พิมพ์ เมนูฝาก ก่อน"));
 
-      if (text === "เชคไอดี" || text === "checkid") {
+        const buffer = await downloadSlip(event.message.id);
+        const text = await readSlipText(buffer);
+
+        if (!matchReceiver(text))
+          return reply(event, flexText("❌ บัญชีไม่ตรง", FINANCE.RECEIVER_NAMES.join("\n")));
+
+        const tx = extractTX(text);
+        if (tx && p.usedSlips.has(tx))
+          return reply(event, flexText("❌ สลิปซ้ำ", ""));
+
+        const amount = parseFloat(extractAmount(text));
+        if (!amount)
+          return reply(event, flexText("❌ อ่านยอดไม่ได้", ""));
+
+        p.credit += amount;
+        p.pendingDeposit = false;
+        p.usedSlips.add(tx);
+        p.historyDeposit.push({ amount, time: new Date() });
+
         return reply(event, flexText(
-          "🆔 USER INFO",
-          `USER ID:\n${uid}\nสถานะ: ${p.role}`
+          "✅ ฝากสำเร็จ",
+          `💵 ${amount}\n💰 เครดิต ${p.credit}`
         ));
       }
 
-      if (text === "เชคกลุ่ม" && groupId) {
-        return reply(event, flexText(
-          "🆔 GROUP ID",
-          groupId
-        ));
+      if (event.message.type !== "text") continue;
+      const text = event.message.text.trim();
+
+      /* ================= USER ================= */
+      if (text === "เมนูฝาก") {
+        p.pendingDeposit = true;
+        return reply(event, flexText("📸 ฝากเครดิต", "แนบสลิปได้เลย"));
       }
 
-      if (text === "ยอด" || text === "เครดิต") {
+      if (text === "เครดิต")
+        return reply(event, flexText("💰 เครดิต", `${p.credit}`));
+
+      if (text === "ประวัติฝาก")
         return reply(event, flexText(
-          "💰 เครดิตคงเหลือ",
-          `${displayName(p)}\n💵 ${p.credit}`
+          "📊 ประวัติฝาก",
+          p.historyDeposit.map(x => `+${x.amount}`).join("\n") || "-"
         ));
-      }
 
-      if (text.startsWith("nick ")) {
-        p.nickName = text.replace("nick ", "").trim();
+      if (text === "ประวัติถอน")
         return reply(event, flexText(
-          "✅ ตั้งชื่อสำเร็จ",
-          `ชื่อใหม่: ${p.nickName}`
+          "📊 ประวัติถอน",
+          p.historyWithdraw.map(x => `-${x.amount}`).join("\n") || "-"
         ));
-      }
 
-      /* ================== OWNER COMMAND ================== */
-      if (p.role === "owner" && text.startsWith("/allow ")) {
-        const gid = text.replace("/allow ", "").trim();
-        if (!ALLOWED_GROUPS.includes(gid)) ALLOWED_GROUPS.push(gid);
-        return reply(event, flexText(
-          "✅ อนุญาตกลุ่มแล้ว",
-          `Group ID:\n${gid}`
-        ));
-      }
-
-      if (p.role === "owner" && text.startsWith("/block ")) {
-        const gid = text.replace("/block ", "").trim();
-        ALLOWED_GROUPS = ALLOWED_GROUPS.filter(g => g !== gid);
-        return reply(event, flexText(
-          "🚫 บล็อกกลุ่มแล้ว",
-          `Group ID:\n${gid}`
-        ));
-      }
-
-      /* ================== GAME ================== */
-      if (text === "เปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
-        game.round++;
-        game.status = "open";
-        Object.values(game.players).forEach(pl => pl.bets = {});
-        return reply(event, flexText(
-          "🟢 เปิดรอบ",
-          `รอบที่ ${game.round}`
-        ));
-      }
-
-      if (text === "ปิดรอบ" && (p.role === "owner" || p.role === "admin")) {
-        game.status = "close";
-        return reply(event, flexText(
-          "🔴 ปิดรอบ",
-          `รอบที่ ${game.round}`
-        ));
-      }
-
-      const m = text.match(/^([\d,]+)\/(\d+)$/);
-      if (m && game.status === "open") {
-        const legs = m[1].split(",").map(Number);
-        const amt = parseInt(m[2], 10);
-        const cost = legs.length * amt;
-
-        if (p.credit < cost)
+      /* ================= ถอน ================= */
+      if (text.startsWith("ถอน ")) {
+        const amt = parseFloat(text.replace("ถอน ", ""));
+        if (p.credit < amt)
           return reply(event, flexText("❌ เครดิตไม่พอ", ""));
 
-        p.credit -= cost;
-        legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
+        p.withdraw = amt;
+        ADMIN_OWNER.forEach(a =>
+          client.pushMessage(a, flexText(
+            "📤 ขอถอน",
+            `UID: ${uid}\nยอด: ${amt}\nพิมพ์: อนุมัติถอน ${uid}`
+          ))
+        );
 
-        return reply(event, flexText(
-          "✅ รับโพยแล้ว",
-          `${displayName(p)}\nขา ${legs.join(",")}\n💰 คงเหลือ ${p.credit}`
-        ));
+        return reply(event, flexText("⏳ รอแอดมิน", ""));
       }
 
-      if (/^S/i.test(text) && (p.role === "owner" || p.role === "admin")) {
-        const cards = parseResult(text);
-        const banker = cards[cards.length - 1];
-        const bankerPoint = calcPoint(banker);
+      /* ============ ADMIN ถอน ============ */
+      if (p.role !== "player" && text.startsWith("อนุมัติถอน ")) {
+        const tid = text.replace("อนุมัติถอน ", "");
+        const tp = game.players[tid];
+        if (!tp || !tp.withdraw) return;
 
-        const legs = cards.slice(0, 6).map((c, i) => ({
-          no: i + 1,
-          win: compare(c, banker) > 0,
-          text: `${calcPoint(c)} แต้ม`
-        }));
+        tp.credit -= tp.withdraw;
+        tp.historyWithdraw.push({ amount: tp.withdraw, time: new Date() });
+        tp.withdraw = null;
 
-        game.tempResult = { cards };
-        return reply(event, resultFlex(game.round, bankerPoint, legs));
+        return reply(event, flexText("✅ อนุมัติถอนแล้ว", ""));
       }
 
-      if ((text === "y" || text === "Y") &&
-          (p.role === "owner" || p.role === "admin") &&
-          game.tempResult) {
+      if (p.role !== "player" && text.startsWith("ยกเลิกถอน ")) {
+        const tid = text.replace("ยกเลิกถอน ", "");
+        const tp = game.players[tid];
+        if (!tp || !tp.withdraw) return;
 
-        const banker = game.tempResult.cards[6];
-        let summary = [];
-
-        for (const id in game.players) {
-          let net = 0;
-          const pl = game.players[id];
-
-          for (const leg in pl.bets) {
-            const r = compare(game.tempResult.cards[leg - 1], banker);
-            const bet = pl.bets[leg];
-            if (r === 2) net += bet * 2;
-            if (r === 1) net += bet;
-            if (r === -1) net -= bet;
-            if (r === -2) net -= bet * 2;
-          }
-
-          pl.credit += net;
-          pl.bets = {};
-          summary.push(`${displayName(pl)} : ${pl.credit}`);
-        }
-
-        game.tempResult = null;
-        return reply(event, flexText(
-          "🏆 สรุปรอบ",
-          summary.join("\n")
-        ));
+        tp.withdraw = null;
+        return reply(event, flexText("❌ ยกเลิกถอนแล้ว", ""));
       }
+
+      /* ============ ADMIN ตั้งบัญชี ============ */
+      if (p.role !== "player" && text.startsWith("ตั้งบัญชี ")) {
+        FINANCE.RECEIVER_NAMES = [text.replace("ตั้งบัญชี ", "").trim()];
+        return reply(event, flexText("🏦 ตั้งบัญชีแล้ว", FINANCE.RECEIVER_NAMES[0]));
+      }
+
+      if (text === "บัญชีรับโอน")
+        return reply(event, flexText("🏦 บัญชีรับโอน", FINANCE.RECEIVER_NAMES.join("\n")));
     }
 
     res.sendStatus(200);
@@ -271,7 +217,6 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 });
 
 /* ================== SERVER ================== */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log("BOT RUNNING ON PORT", PORT)
+app.listen(process.env.PORT || 3000, () =>
+  console.log("BOT RUNNING")
 );
