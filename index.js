@@ -12,7 +12,7 @@ const config = {
 
 /* 👑 OWNER */
 const ADMIN_OWNER = [
-  "U84e79aaade836e9197263bf711348de0"
+  "Uab107367b6017b2b5fede655841f715c"
 ];
 
 /* 🟡 ADMIN SUB */
