@@ -1,12 +1,6 @@
-{
-  "name": "pokdeng-bot",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "@line/bot-sdk": "^9.0.0",
-    "express": "^4.18.2"
-  }
+"dependencies": {
+  "@line/bot-sdk": "^7.7.0",
+  "express": "^4.18.2",
+  "axios": "^1.6.0",
+  "@google-cloud/vision": "^4.0.0"
 }
