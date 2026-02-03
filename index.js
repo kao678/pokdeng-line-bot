@@ -1,4 +1,4 @@
-/* ================== IMPORT ================== */
+p/* ================== IMPORT ================== */
 const express = require("express");
 const line = require("@line/bot-sdk");
 const { compare, calcPoint, parseResult } = require("./pokdeng");
@@ -12,7 +12,7 @@ const config = {
 
 /* 👑 OWNER (ต้องเป็น UID จริง) */
 const ADMIN_OWNER = [
-  "Uab107367b6017b2b5fede655841f715c"
+  "U84e79aaade836e9197263bf711348de0"
 ];
 
 /* 🟡 ADMIN SUB */
