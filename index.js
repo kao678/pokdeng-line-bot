@@ -1,3 +1,7 @@
+/* =====================================================
+   POKDENG LINE BOT – BULLETPROOF SELL VERSION
+   ===================================================== */
+
 /* ================== IMPORT ================== */
 const express = require("express");
 const line = require("@line/bot-sdk");
@@ -14,16 +18,28 @@ const config = {
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-/* ================== STORAGE ================== */
-const DATA_PATH = path.join(__dirname, "data");
-const PLAYER_FILE = path.join(DATA_PATH, "players.json");
+/* ================== STORAGE (BULLETPROOF) ================== */
+const DATA_DIR = path.join(__dirname, "data");
+const PLAYER_FILE = path.join(DATA_DIR, "players.json");
 
-if (!fs.existsSync(DATA_PATH)) fs.mkdirSync(DATA_PATH);
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(PLAYER_FILE)) fs.writeFileSync(PLAYER_FILE, "{}");
 
-const loadPlayers = () => JSON.parse(fs.readFileSync(PLAYER_FILE));
-const savePlayers = data =>
-  fs.writeFileSync(PLAYER_FILE, JSON.stringify(data, null, 2));
+const safeReadPlayers = () => {
+  try {
+    return JSON.parse(fs.readFileSync(PLAYER_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+};
+
+const safeSavePlayers = data => {
+  try {
+    fs.writeFileSync(PLAYER_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("SAVE ERROR:", e.message);
+  }
+};
 
 /* ================== FINANCE CONFIG ================== */
 const BANK_ACCOUNT = {
@@ -38,10 +54,10 @@ const ADMIN_OWNER = [
   "Uab107367b6017b2b5fede655841f715c",
   "U84e79aaade836e9197263bf711348de0"
 ];
-let ADMIN_SUB = [];
+const ADMIN_SUB = [];
 
-/* 🔒 กลุ่มที่อนุญาต (player เท่านั้น) */
-let ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
+/* 🔒 กลุ่มที่อนุญาต */
+const ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
 const app = express();
@@ -52,7 +68,7 @@ const ocrClient = new vision.ImageAnnotatorClient();
 let game = {
   round: 1,
   status: "close",
-  players: loadPlayers(),
+  players: safeReadPlayers(),
   tempResult: null
 };
 
@@ -61,7 +77,7 @@ const safeReply = async (event, msg) => {
   try {
     await client.replyMessage(event.replyToken, msg);
   } catch (e) {
-    console.error("Reply error:", e.message);
+    console.error("REPLY ERROR:", e.message);
   }
 };
 
@@ -148,6 +164,14 @@ const extractAmount = text => {
   return m ? parseFloat(m[1]) : null;
 };
 
+const extractTX = text => {
+  const m = text.match(/(TX|Ref|Transaction).*?([A-Z0-9]+)/i);
+  return m ? m[2] : null;
+};
+
+const matchReceiver = text =>
+  RECEIVER_NAMES.some(n => text.includes(n));
+
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   for (const event of req.body.events) {
@@ -157,64 +181,185 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       const uid = event.source.userId;
       const groupId = event.source.type === "group" ? event.source.groupId : null;
 
+      /* INIT PLAYER */
       if (!game.players[uid]) {
         game.players[uid] = {
           credit: 0,
           bets: {},
-          role: ADMIN_OWNER.includes(uid) ? "owner" : "player",
-          pendingDeposit: false
+          role: ADMIN_OWNER.includes(uid)
+            ? "owner"
+            : ADMIN_SUB.includes(uid)
+            ? "admin"
+            : "player",
+          pendingDeposit: false,
+          usedSlip: [],
+          withdrawReq: null
         };
-        savePlayers(game.players);
+        safeSavePlayers(game.players);
       }
       const p = game.players[uid];
 
+      /* BLOCK GROUP */
       if (groupId && p.role === "player" && !ALLOWED_GROUPS.includes(groupId)) {
         await safeReply(event, flexText("❌ ไม่ได้รับอนุญาต", ""));
         continue;
       }
 
+      /* IMAGE = ฝากเงิน */
       if (event.message.type === "image") {
         if (!p.pendingDeposit)
           return await safeReply(event, flexText("❌ ยังไม่ได้เลือกฝาก", ""));
-        try {
-          const buf = await downloadSlip(event.message.id);
-          const text = await readSlip(buf);
-          const amount = extractAmount(text);
-          if (!amount)
-            return await safeReply(event, flexText("❌ อ่านยอดไม่ได้", ""));
-          p.credit += amount;
-          p.pendingDeposit = false;
-          savePlayers(game.players);
-          return await safeReply(event, flexText("✅ ฝากสำเร็จ", `💰 ${p.credit}`));
-        } catch {
-          return await safeReply(event, flexText("❌ OCR Error", ""));
-        }
+        const buf = await downloadSlip(event.message.id);
+        const text = await readSlip(buf);
+
+        if (!matchReceiver(text))
+          return await safeReply(event, flexText("❌ บัญชีไม่ตรง", ""));
+
+        const tx = extractTX(text);
+        if (tx && p.usedSlip.includes(tx))
+          return await safeReply(event, flexText("❌ สลิปซ้ำ", ""));
+
+        const amount = extractAmount(text);
+        if (!amount)
+          return await safeReply(event, flexText("❌ อ่านยอดไม่ได้", ""));
+
+        p.credit += amount;
+        p.pendingDeposit = false;
+        if (tx) p.usedSlip.push(tx);
+        safeSavePlayers(game.players);
+
+        return await safeReply(
+          event,
+          flexText("✅ ฝากสำเร็จ", `💰 เครดิต ${p.credit}`)
+        );
       }
 
       if (event.message.type !== "text") continue;
       const text = event.message.text.trim();
 
-      if (text === "เมนู")
-        return await safeReply(event, playerMenuFlex());
-
+      /* MENUS */
+      if (text === "เมนู") return await safeReply(event, playerMenuFlex());
       if (text === "เมนูแอดมิน" && p.role !== "player")
         return await safeReply(event, adminMenuFlex());
 
+      /* USER */
       if (text === "เมนูฝาก") {
         p.pendingDeposit = true;
-        savePlayers(game.players);
-        return await safeReply(event,
-          flexText("📸 ฝากเครดิต",
-            `${BANK_ACCOUNT.bank}\n${BANK_ACCOUNT.name}\n${BANK_ACCOUNT.number}`)
+        safeSavePlayers(game.players);
+        return await safeReply(
+          event,
+          flexText(
+            "📸 ฝากเครดิต",
+            `${BANK_ACCOUNT.bank}\n${BANK_ACCOUNT.name}\n${BANK_ACCOUNT.number}`
+          )
         );
       }
 
       if (text === "เครดิต")
-        return await safeReply(event,
-          flexText("💰 เครดิตคงเหลือ", `${p.credit}`));
+        return await safeReply(
+          event,
+          flexText("💰 เครดิตคงเหลือ", `${p.credit}`)
+        );
 
-    } catch (err) {
-      console.error("EVENT ERROR:", err);
+      if (text.startsWith("ถอน ")) {
+        const amt = parseFloat(text.replace("ถอน ", ""));
+        if (!amt || amt <= 0)
+          return await safeReply(event, flexText("❌ จำนวนไม่ถูกต้อง", ""));
+        if (p.credit < amt)
+          return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
+
+        p.withdrawReq = amt;
+        safeSavePlayers(game.players);
+
+        for (const o of ADMIN_OWNER) {
+          await client.pushMessage(
+            o,
+            flexText("📤 แจ้งถอน", `UID: ${uid}\nยอด ${amt}`)
+          );
+        }
+        return await safeReply(event, flexText("⏳ รออนุมัติ", ""));
+      }
+
+      /* ADMIN APPROVE */
+      if (p.role !== "player" && text.startsWith("/approve ")) {
+        const tuid = text.replace("/approve ", "").trim();
+        const tp = game.players[tuid];
+        if (!tp || !tp.withdrawReq)
+          return await safeReply(event, flexText("❌ ไม่พบรายการ", ""));
+
+        tp.credit -= tp.withdrawReq;
+        tp.withdrawReq = null;
+        safeSavePlayers(game.players);
+
+        await client.pushMessage(
+          tuid,
+          flexText("✅ ถอนสำเร็จ", `เครดิต ${tp.credit}`)
+        );
+        return await safeReply(event, flexText("✅ อนุมัติแล้ว", ""));
+      }
+
+      /* GAME CONTROL */
+      if (text === "เปิดรอบ" && p.role !== "player") {
+        game.round++;
+        game.status = "open";
+        Object.values(game.players).forEach(pl => (pl.bets = {}));
+        return await safeReply(event, flexText("🟢 เปิดรอบ", `รอบ ${game.round}`));
+      }
+
+      if (text === "ปิดรอบ" && p.role !== "player") {
+        game.status = "close";
+        return await safeReply(event, flexText("🔴 ปิดรอบ", ""));
+      }
+
+      /* BET */
+      const m = text.match(/^([\d,]+)\/(\d+)$/);
+      if (m && game.status === "open") {
+        const legs = m[1].split(",").map(Number);
+        const amt = parseInt(m[2], 10);
+        const cost = legs.length * amt;
+        if (p.credit < cost)
+          return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
+        p.credit -= cost;
+        legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
+        safeSavePlayers(game.players);
+        return await safeReply(
+          event,
+          flexText("✅ รับโพย", `เครดิต ${p.credit}`)
+        );
+      }
+
+      /* RESULT */
+      if (/^S/i.test(text) && p.role !== "player") {
+        const cards = parseResult(text);
+        game.tempResult = { cards };
+        return await safeReply(
+          event,
+          resultFlex(game.round, calcPoint(cards[6]), [])
+        );
+      }
+
+      if ((text === "Y" || text === "y") && p.role !== "player" && game.tempResult) {
+        const banker = game.tempResult.cards[6];
+        for (const id in game.players) {
+          const pl = game.players[id];
+          let net = 0;
+          for (const leg in pl.bets) {
+            const r = compare(game.tempResult.cards[leg - 1], banker);
+            const bet = pl.bets[leg];
+            if (r === 2) net += bet * 2;
+            if (r === 1) net += bet;
+            if (r === -1) net -= bet;
+            if (r === -2) net -= bet * 2;
+          }
+          pl.credit += net;
+          pl.bets = {};
+        }
+        safeSavePlayers(game.players);
+        game.tempResult = null;
+        return await safeReply(event, flexText("🏆 สรุปรอบ", "เรียบร้อย"));
+      }
+    } catch (e) {
+      console.error("EVENT ERROR:", e);
     }
   }
   res.sendStatus(200);
@@ -222,5 +367,5 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
 /* ================== SERVER ================== */
 app.listen(process.env.PORT || 3000, () =>
-  console.log("BOT RUNNING (BULLETPROOF)")
+  console.log("BOT RUNNING – BULLETPROOF")
 );
