@@ -228,6 +228,30 @@ const approveWithdrawFlex = (uid, amount) => ({
   }
 });
 
+/* ================== FINANCE LOG ================== */
+const FINANCE_LOG_FILE = path.join(DATA_DIR, "finance-log.json");
+
+if (!fs.existsSync(FINANCE_LOG_FILE)) {
+  fs.writeFileSync(FINANCE_LOG_FILE, "[]");
+}
+
+const readFinanceLog = () => {
+  try {
+    return JSON.parse(fs.readFileSync(FINANCE_LOG_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+};
+
+const addFinanceLog = log => {
+  const logs = readFinanceLog();
+  logs.push({
+    ...log,
+    time: new Date().toISOString()
+  });
+  fs.writeFileSync(FINANCE_LOG_FILE, JSON.stringify(logs, null, 2));
+};
+
 /* ================== OCR ================== */
 const downloadSlip = async id => {
   const url = `https://api-data.line.me/v2/bot/message/${id}/content`;
