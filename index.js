@@ -66,6 +66,73 @@ const flexText = (title, body) => ({
     }
   }
 });
+/* ================== FLEX MENUS ================== */
+
+// 👤 เมนูผู้เล่น
+const playerMenuFlex = () => ({
+  type: "flex",
+  altText: "เมนูผู้เล่น",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "🎮 เมนูผู้เล่น", weight: "bold", size: "lg" },
+        {
+          type: "button",
+          style: "primary",
+          color: "#06c755",
+          action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" }
+        },
+        {
+          type: "button",
+          action: { type: "message", label: "💰 เครดิตคงเหลือ", text: "เครดิต" }
+        },
+        {
+          type: "button",
+          style: "secondary",
+          action: { type: "message", label: "📤 ถอนเครดิต", text: "ถอน" }
+        }
+      ]
+    }
+  }
+});
+
+// 👑 เมนูแอดมิน
+const adminMenuFlex = () => ({
+  type: "flex",
+  altText: "เมนูแอดมิน",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "👑 เมนูแอดมิน", weight: "bold", size: "lg" },
+        {
+          type: "button",
+          style: "primary",
+          color: "#1e90ff",
+          action: { type: "message", label: "🟢 เปิดรอบ", text: "เปิดรอบ" }
+        },
+        {
+          type: "button",
+          style: "secondary",
+          action: { type: "message", label: "🔴 ปิดรอบ", text: "ปิดรอบ" }
+        },
+        {
+          type: "button",
+          style: "primary",
+          color: "#ff4757",
+          action: { type: "message", label: "🏆 สรุปผล", text: "Y" }
+        }
+      ]
+    }
+  }
+});
 
 /* ================== OCR HELPERS ================== */
 async function downloadSlip(messageId) {
