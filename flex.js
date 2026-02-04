@@ -132,16 +132,6 @@ const approveWithdrawFlex = (uid, amt) => ({
   }
 });
 
-module.exports = {
-  flexText,
-  playerMenuFlex,
-  adminMenuFlex,
-  resultPreviewFlex,
-  resultSummaryFlex,
-  addCreditManualFlex,
-  approveWithdrawFlex
-};
-
 /* ================== FLEX CHECK ID ================== */
 const checkIdFlex = (uid, role, credit) => ({
   type: "flex",
@@ -175,4 +165,13 @@ const checkIdFlex = (uid, role, credit) => ({
   }
 });
 
-module.exports.checkIdFlex = checkIdFlex;
+module.exports = {
+  flexText,
+  playerMenuFlex,
+  adminMenuFlex,
+  resultPreviewFlex,
+  resultSummaryFlex,
+  addCreditManualFlex,
+  approveWithdrawFlex
+};
+
