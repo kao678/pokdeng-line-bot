@@ -22,6 +22,30 @@ const config = {
 const DATA_DIR = path.join(__dirname, "data");
 const PLAYER_FILE = path.join(DATA_DIR, "players.json");
 
+/* ================== FINANCE LOG ================== */
+const FINANCE_LOG_FILE = path.join(DATA_DIR, "finance-log.json");
+
+if (!fs.existsSync(FINANCE_LOG_FILE)) {
+  fs.writeFileSync(FINANCE_LOG_FILE, "[]");
+}
+
+const readFinanceLog = () => {
+  try {
+    return JSON.parse(fs.readFileSync(FINANCE_LOG_FILE, "utf8"));
+  } catch {
+    return [];
+  }
+};
+
+const addFinanceLog = log => {
+  const logs = readFinanceLog();
+  logs.push({
+    ...log,
+    time: new Date().toISOString()
+  });
+  fs.writeFileSync(FINANCE_LOG_FILE, JSON.stringify(logs, null, 2));
+};
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(PLAYER_FILE)) fs.writeFileSync(PLAYER_FILE, "{}");
 
