@@ -215,6 +215,7 @@ module.exports = {
   adminMenuFlex,
   resultPreviewFlex,
   resultSummaryFlex,
+  resultSummaryProFlex,
   addCreditManualFlex,
   approveWithdrawFlex,
   checkIdFlex
