@@ -60,7 +60,7 @@ const ADMIN_OWNER = [
 /* ================== ROOMS ================== */
 // 🎮 ห้องเล่นเกม
 const PLAY_ROOM_IDS = [
-  "C682703c2206d1abb1adb7f7c2ca8284c_play"
+  "C682703c2206d1abb1adb7f7c2ca8284c"
 ];
 
 // 💰 ห้องฝากถอน
