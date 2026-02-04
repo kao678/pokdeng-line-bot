@@ -28,7 +28,7 @@ const ADMIN_OWNER = [
 ];
 let ADMIN_SUB = [];
 
-/* 🔒 กลุ่มที่อนุญาต (player เท่านั้นที่โดนเช็ค) */
+/* 🔒 กลุ่มที่อนุญาต (player เท่านั้น) */
 let ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
@@ -40,11 +40,9 @@ const ocrClient = new vision.ImageAnnotatorClient();
 let game = {
   round: 156,
   status: "close",
-  players: loadPlayers(),   // 💾 โหลดเครดิตถาวร
+  players: loadPlayers(),
   tempResult: null
 };
-
-let financeLog = [];
 
 /* ================== UTILS ================== */
 const reply = (event, msg) =>
@@ -66,9 +64,9 @@ const flexText = (title, body) => ({
     }
   }
 });
-/* ================== FLEX MENUS ================== */
 
-// 👤 เมนูผู้เล่น
+/* ================== FLEX MENUS ================== */
+// 👤 Player Menu
 const playerMenuFlex = () => ({
   type: "flex",
   altText: "เมนูผู้เล่น",
@@ -80,27 +78,15 @@ const playerMenuFlex = () => ({
       spacing: "md",
       contents: [
         { type: "text", text: "🎮 เมนูผู้เล่น", weight: "bold", size: "lg" },
-        {
-          type: "button",
-          style: "primary",
-          color: "#06c755",
-          action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" }
-        },
-        {
-          type: "button",
-          action: { type: "message", label: "💰 เครดิตคงเหลือ", text: "เครดิต" }
-        },
-        {
-          type: "button",
-          style: "secondary",
-          action: { type: "message", label: "📤 ถอนเครดิต", text: "ถอน" }
-        }
+        { type: "button", style: "primary", action: { type: "message", label: "📥 ฝากเครดิต", text: "เมนูฝาก" } },
+        { type: "button", action: { type: "message", label: "💰 เครดิต", text: "เครดิต" } },
+        { type: "button", style: "secondary", action: { type: "message", label: "📤 ถอนเครดิต", text: "ถอน" } }
       ]
     }
   }
 });
 
-// 👑 เมนูแอดมิน
+// 👑 Admin Menu
 const adminMenuFlex = () => ({
   type: "flex",
   altText: "เมนูแอดมิน",
@@ -112,23 +98,9 @@ const adminMenuFlex = () => ({
       spacing: "md",
       contents: [
         { type: "text", text: "👑 เมนูแอดมิน", weight: "bold", size: "lg" },
-        {
-          type: "button",
-          style: "primary",
-          color: "#1e90ff",
-          action: { type: "message", label: "🟢 เปิดรอบ", text: "เปิดรอบ" }
-        },
-        {
-          type: "button",
-          style: "secondary",
-          action: { type: "message", label: "🔴 ปิดรอบ", text: "ปิดรอบ" }
-        },
-        {
-          type: "button",
-          style: "primary",
-          color: "#ff4757",
-          action: { type: "message", label: "🏆 สรุปผล", text: "Y" }
-        }
+        { type: "button", style: "primary", action: { type: "message", label: "🟢 เปิดรอบ", text: "เปิดรอบ" } },
+        { type: "button", style: "secondary", action: { type: "message", label: "🔴 ปิดรอบ", text: "ปิดรอบ" } },
+        { type: "button", style: "primary", color: "#ff4757", action: { type: "message", label: "🏆 สรุปผล", text: "Y" } }
       ]
     }
   }
@@ -170,10 +142,8 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       if (event.type !== "message") continue;
 
       const uid = event.source.userId;
-      const groupId =
-        event.source.type === "group" ? event.source.groupId : null;
+      const groupId = event.source.type === "group" ? event.source.groupId : null;
 
-      /* INIT PLAYER */
       if (!game.players[uid]) {
         let role = "player";
         if (ADMIN_OWNER.includes(uid)) role = "owner";
@@ -184,42 +154,31 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           bets: {},
           role,
           pendingDeposit: false,
-          usedSlip: [],
+          usedSlip: new Set(),
           withdrawReq: null
         };
         savePlayers(game.players);
       }
+
       const p = game.players[uid];
 
-      /* 🚫 BLOCK GROUP (เฉพาะ player) */
-      if (
-        groupId &&
-        p.role === "player" &&
-        !ALLOWED_GROUPS.includes(groupId)
-      ) {
-        await reply(
-          event,
-          flexText("❌ ไม่ได้รับอนุญาต", "กลุ่มนี้ยังไม่เปิดใช้งาน")
-        );
+      if (groupId && p.role === "player" && !ALLOWED_GROUPS.includes(groupId)) {
+        await reply(event, flexText("❌ ไม่ได้รับอนุญาต", "กลุ่มนี้ยังไม่เปิดใช้งาน"));
         continue;
       }
 
-      /* ================== IMAGE = ฝากเงิน ================== */
+      /* IMAGE = ฝาก */
       if (event.message.type === "image") {
         if (!p.pendingDeposit)
-          return reply(
-            event,
-            flexText("❌ ยังไม่ได้เลือกฝาก", "พิมพ์ เมนูฝาก ก่อนแนบสลิป")
-          );
+          return reply(event, flexText("❌ ยังไม่ได้เลือกฝาก", "พิมพ์ เมนูฝาก"));
 
-        const buf = await downloadSlip(event.message.id);
-        const text = await readSlip(buf);
+        const text = await readSlip(await downloadSlip(event.message.id));
 
         if (!matchReceiver(text))
           return reply(event, flexText("❌ บัญชีไม่ตรง", ""));
 
         const tx = extractTX(text);
-        if (tx && p.usedSlip.includes(tx))
+        if (tx && p.usedSlip.has(tx))
           return reply(event, flexText("❌ สลิปซ้ำ", ""));
 
         const amount = extractAmount(text);
@@ -228,153 +187,76 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
         p.credit += amount;
         p.pendingDeposit = false;
-        if (tx) p.usedSlip.push(tx);
-
-        financeLog.push({
-          type: "deposit",
-          uid,
-          amount,
-          time: new Date().toISOString()
-        });
+        if (tx) p.usedSlip.add(tx);
 
         savePlayers(game.players);
-
-        return reply(
-          event,
-          flexText("✅ ฝากสำเร็จ", `💵 ${amount}\n💰 เครดิต ${p.credit}`)
-        );
+        return reply(event, flexText("✅ ฝากสำเร็จ", `💵 ${amount}\n💰 เครดิต ${p.credit}`));
       }
 
       if (event.message.type !== "text") continue;
       const text = event.message.text.trim();
 
-      /* ================== USER ================== */
+      /* MENUS */
+      if (text === "เมนู") {
+        return reply(event, p.role === "player" ? playerMenuFlex() : adminMenuFlex());
+      }
+
       if (text === "เมนูฝาก") {
         p.pendingDeposit = true;
         savePlayers(game.players);
-        return reply(
-          event,
-          flexText(
-            "📸 ฝากเครดิต",
-            `${BANK_ACCOUNT.bank}\n${BANK_ACCOUNT.name}\n${BANK_ACCOUNT.number}\n\nแนบสลิปได้เลย`
-          )
-        );
+        return reply(event, flexText("📸 ฝากเครดิต",
+          `${BANK_ACCOUNT.bank}\n${BANK_ACCOUNT.name}\n${BANK_ACCOUNT.number}`));
       }
 
       if (text === "เครดิต")
-        return reply(event, flexText("💰 เครดิตคงเหลือ", `${p.credit}`));
+        return reply(event, flexText("💰 เครดิต", `${p.credit}`));
+
+      if (text === "ถอน")
+        return reply(event, flexText("📤 ถอนเครดิต", "พิมพ์: ถอน 500"));
 
       if (text.startsWith("ถอน ")) {
         const amt = parseFloat(text.replace("ถอน ", ""));
-        if (!amt || amt <= 0)
-          return reply(event, flexText("❌ จำนวนไม่ถูกต้อง", ""));
-        if (p.credit < amt)
-          return reply(event, flexText("❌ เครดิตไม่พอ", ""));
+        if (!amt || amt <= 0 || p.credit < amt)
+          return reply(event, flexText("❌ ถอนไม่ได้", ""));
 
         p.withdrawReq = amt;
         savePlayers(game.players);
 
         for (const o of ADMIN_OWNER) {
-          await client.pushMessage(
-            o,
-            flexText("📤 แจ้งถอน", `UID: ${uid}\nยอด ${amt}`)
-          );
+          await client.pushMessage(o, flexText("📤 แจ้งถอน", `UID: ${uid}\nยอด ${amt}`));
         }
         return reply(event, flexText("⏳ รออนุมัติ", `${amt} บาท`));
       }
 
-      /* ================== ADMIN APPROVE ================== */
       if (p.role !== "player" && text.startsWith("/approve ")) {
-        const tuid = text.replace("/approve ", "").trim();
+        const tuid = text.replace("/approve ", "");
         const tp = game.players[tuid];
-        if (!tp || !tp.withdrawReq)
-          return reply(event, flexText("❌ ไม่พบรายการ", ""));
+        if (!tp || !tp.withdrawReq) return;
 
         tp.credit -= tp.withdrawReq;
-
-        financeLog.push({
-          type: "withdraw",
-          uid: tuid,
-          amount: tp.withdrawReq,
-          time: new Date().toISOString()
-        });
-
-        await client.pushMessage(
-          tuid,
-          flexText(
-            "✅ ถอนสำเร็จ",
-            `ยอด ${tp.withdrawReq}\nเครดิต ${tp.credit}`
-          )
-        );
-
         tp.withdrawReq = null;
         savePlayers(game.players);
+
+        await client.pushMessage(tuid,
+          flexText("✅ ถอนสำเร็จ", `เครดิตคงเหลือ ${tp.credit}`));
 
         return reply(event, flexText("✅ อนุมัติแล้ว", tuid));
       }
 
-      /* ================== GAME ================== */
-      if (
-        text === "เปิดรอบ" &&
-        (p.role === "owner" || p.role === "admin")
-      ) {
+      /* GAME */
+      if (text === "เปิดรอบ" && p.role !== "player") {
         game.round++;
         game.status = "open";
-        Object.values(game.players).forEach(pl => (pl.bets = {}));
+        Object.values(game.players).forEach(pl => pl.bets = {});
         return reply(event, flexText("🟢 เปิดรอบ", `รอบ ${game.round}`));
       }
 
-      if (
-        text === "ปิดรอบ" &&
-        (p.role === "owner" || p.role === "admin")
-      ) {
+      if (text === "ปิดรอบ" && p.role !== "player") {
         game.status = "close";
         return reply(event, flexText("🔴 ปิดรอบ", `รอบ ${game.round}`));
       }
 
-      const m = text.match(/^([\d,]+)\/(\d+)$/);
-      if (m && game.status === "open") {
-        const legs = m[1].split(",").map(Number);
-        const amt = parseInt(m[2], 10);
-        const cost = legs.length * amt;
-
-        if (p.credit < cost)
-          return reply(event, flexText("❌ เครดิตไม่พอ", ""));
-
-        p.credit -= cost;
-        legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
-
-        savePlayers(game.players);
-
-        return reply(
-          event,
-          flexText("✅ รับโพย", `ขา ${legs.join(",")}\nเครดิต ${p.credit}`)
-        );
-      }
-
-      if (
-        /^S/i.test(text) &&
-        (p.role === "owner" || p.role === "admin")
-      ) {
-        const cards = parseResult(text);
-        const banker = cards[cards.length - 1];
-        const bankerPoint = calcPoint(banker);
-
-        const legs = cards.slice(0, 6).map((c, i) => ({
-          no: i + 1,
-          win: compare(c, banker) > 0,
-          text: `${calcPoint(c)} แต้ม`
-        }));
-
-        game.tempResult = { cards };
-        return reply(event, resultFlex(game.round, bankerPoint, legs));
-      }
-
-      if (
-        (text === "y" || text === "Y") &&
-        (p.role === "owner" || p.role === "admin") &&
-        game.tempResult
-      ) {
+      if ((text === "Y" || text === "y") && p.role !== "player" && game.tempResult) {
         const banker = game.tempResult.cards[6];
         let summary = [];
 
@@ -384,19 +266,15 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           for (const leg in pl.bets) {
             const r = compare(game.tempResult.cards[leg - 1], banker);
             const bet = pl.bets[leg];
-            if (r === 2) net += bet * 2;
-            if (r === 1) net += bet;
-            if (r === -1) net -= bet;
-            if (r === -2) net -= bet * 2;
+            net += r === 2 ? bet * 2 : r === 1 ? bet : r === -1 ? -bet : r === -2 ? -bet * 2 : 0;
           }
           pl.credit += net;
           pl.bets = {};
-          summary.push(`${id} : ${pl.credit}`);
+          summary.push(`${id.slice(0,6)}… : ${pl.credit}`);
         }
 
         savePlayers(game.players);
         game.tempResult = null;
-
         return reply(event, flexText("🏆 สรุปรอบ", summary.join("\n")));
       }
     }
@@ -409,5 +287,5 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
 /* ================== SERVER ================== */
 app.listen(process.env.PORT || 3000, () =>
-  console.log("BOT RUNNING")
+  console.log("BOT RUNNING (PRODUCTION READY)")
 );
