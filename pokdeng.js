@@ -1,34 +1,25 @@
-const cardPoint = c => (c >= 10 ? 0 : c);
-
-const calcPoint = cards =>
-  cards.reduce((s, c) => s + cardPoint(c), 0) % 10;
-
-const isDeng = cards =>
-  cards.length === 2 && calcPoint(cards) >= 8;
+function calcPoint(cards) {
+  let sum = cards.reduce((a, c) => a + Math.min(c, 10), 0);
+  return sum % 10;
+}
 
 function compare(player, banker) {
   const p = calcPoint(player);
   const b = calcPoint(banker);
-  const pd = isDeng(player);
-  const bd = isDeng(banker);
-
-  if (pd && !bd) return 2;
-  if (!pd && bd) return -2;
+  if (p === 9 && player.length === 2) return 2;
+  if (b === 9 && banker.length === 2) return -2;
   if (p > b) return 1;
   if (p < b) return -1;
   return 0;
 }
 
 function parseResult(text) {
+  // S 1-2 3-4 ... B
   return text
     .replace(/^S/i, "")
-    .split(",")
-    .map(x => x.trim().split("").map(Number));
+    .trim()
+    .split(" ")
+    .map(x => x.split("-").map(Number));
 }
 
-module.exports = {
-  calcPoint,
-  isDeng,
-  compare,
-  parseResult
-};
+module.exports = { compare, calcPoint, parseResult };
