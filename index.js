@@ -126,6 +126,35 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       if (event.message.type !== "text") continue;
       const text = event.message.text.trim();
 
+       /* ===== BLOCK GAME COMMAND IN WRONG ROOM ===== */
+if (
+  ["เปิดรอบ", "ปิดรอบ"].includes(text) ||
+  /^([\d,]+)\/(\d+)$/.test(text) ||
+  /^S/i.test(text) ||
+  text === "Y" || text === "y"
+) {
+  if (!isPlayRoom(event.source)) {
+    return await safeReply(
+      event,
+      flexText("🚫 ห้องไม่ถูกต้อง", "คำสั่งนี้ใช้ได้เฉพาะ 🎮 ห้องเล่น")
+    );
+  }
+}
+       /* ===== BLOCK FINANCE COMMAND IN WRONG ROOM ===== */
+if (
+  text.startsWith("ถอน") ||
+  text.startsWith("/approve") ||
+  text.startsWith("เติมเอง") ||
+  /^\+\d+\sU/.test(text)
+) {
+  if (!isFinanceRoom(event.source)) {
+    return await safeReply(
+      event,
+      flexText("🚫 ห้องไม่ถูกต้อง", "คำสั่งนี้ใช้ได้เฉพาะ 💰 ห้องฝากถอน")
+    );
+  }
+}
+
       /* ===== MENUS ===== */
       if (text === "เมนู")
         return await safeReply(event, playerMenuFlex());
