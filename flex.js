@@ -141,3 +141,38 @@ module.exports = {
   addCreditManualFlex,
   approveWithdrawFlex
 };
+
+/* ================== FLEX CHECK ID ================== */
+const checkIdFlex = (uid, role, credit) => ({
+  type: "flex",
+  altText: "เช็คไอดี",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "🆔 USER INFO", weight: "bold", size: "lg" },
+        {
+          type: "text",
+          text: `USER ID:\n${uid}`,
+          wrap: true,
+          size: "sm"
+        },
+        {
+          type: "text",
+          text: `ROLE: ${role.toUpperCase()}`,
+          weight: "bold"
+        },
+        {
+          type: "text",
+          text: `💰 CREDIT: ${credit}`,
+          weight: "bold"
+        }
+      ]
+    }
+  }
+});
+
+module.exports.checkIdFlex = checkIdFlex;
