@@ -56,6 +56,17 @@ const ADMIN_OWNER = [
   "Uab107367b6017b2b5fede655841f715c",
   "U84e79aaade836e9197263bf711348de0"
 ];
+
+/* ================== ROOMS ================== */
+// 🎮 ห้องเล่นเกม
+const PLAY_ROOM_IDS = [
+  "Cxxxxxxxxxxxxxxxx_play"
+];
+
+// 💰 ห้องฝากถอน
+const FINANCE_ROOM_IDS = [
+  "Cxxxxxxxxxxxxxxxx_money"
+];
 const ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
