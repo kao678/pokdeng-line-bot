@@ -15,7 +15,7 @@ const {
   resultSummaryFlex,
   addCreditManualFlex,
   approveWithdrawFlex,
-  flexText
+  flexText,
   checkIdFlex
    } = require("./flex");
 
