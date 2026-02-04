@@ -1,6 +1,5 @@
 /* =====================================================
-   POKDENG LINE BOT – FINAL SELL / BULLETPROOF
-   FILE: index.js
+   POKDENG LINE BOT – FINAL SELL / BULLETPROOF VERSION
    ===================================================== */
 
 /* ================== IMPORT ================== */
@@ -9,9 +8,17 @@ const line = require("@line/bot-sdk");
 const fs = require("fs");
 const path = require("path");
 const { compare, calcPoint, parseResult } = require("./pokdeng");
-const { resultFlex } = require("./flex");
+const {
+  playerMenuFlex,
+  adminMenuFlex,
+  resultPreviewFlex,
+  resultSummaryFlex,
+  addCreditManualFlex,
+  approveWithdrawFlex,
+  flexText
+} = require("./flex");
 
-/* ================== LINE CONFIG ================== */
+/* ================== CONFIG ================== */
 const config = {
   channelAccessToken: process.env.LINE_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
@@ -27,36 +34,34 @@ if (!fs.existsSync(PLAYER_FILE)) fs.writeFileSync(PLAYER_FILE, "{}");
 if (!fs.existsSync(FINANCE_LOG_FILE)) fs.writeFileSync(FINANCE_LOG_FILE, "[]");
 
 const readPlayers = () => {
-  try {
-    return JSON.parse(fs.readFileSync(PLAYER_FILE, "utf8"));
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(fs.readFileSync(PLAYER_FILE)); }
+  catch { return {}; }
 };
+const savePlayers = d =>
+  fs.writeFileSync(PLAYER_FILE, JSON.stringify(d, null, 2));
 
-const savePlayers = data =>
-  fs.writeFileSync(PLAYER_FILE, JSON.stringify(data, null, 2));
-
+const readFinanceLog = () => {
+  try { return JSON.parse(fs.readFileSync(FINANCE_LOG_FILE)); }
+  catch { return []; }
+};
 const addFinanceLog = log => {
-  const logs = JSON.parse(fs.readFileSync(FINANCE_LOG_FILE, "utf8"));
+  const logs = readFinanceLog();
   logs.push({ ...log, time: new Date().toISOString() });
   fs.writeFileSync(FINANCE_LOG_FILE, JSON.stringify(logs, null, 2));
 };
 
-/* ================== ROLE CONFIG ================== */
+/* ================== ROLE ================== */
 const ADMIN_OWNER = [
-  "Uab107367b6017b2b5fede655841f715c"
+  "Uab107367b6017b2b5fede655841f715c",
+  "U84e79aaade836e9197263bf711348de0"
 ];
-
-const ALLOWED_GROUPS = [
-  "C682703c2206d1abb1adb7f7c2ca8284c" // ห้องเล่น
-];
+const ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
 const app = express();
 const client = new line.Client(config);
 
-/* ================== GAME STATE ================== */
+/* ================== STATE ================== */
 let game = {
   round: 1,
   status: "close",
@@ -66,30 +71,9 @@ let game = {
 
 /* ================== SAFE REPLY ================== */
 const safeReply = async (event, msg) => {
-  try {
-    await client.replyMessage(event.replyToken, msg);
-  } catch (e) {
-    console.error("REPLY ERROR:", e.message);
-  }
+  try { await client.replyMessage(event.replyToken, msg); }
+  catch (e) { console.error("REPLY ERROR:", e.message); }
 };
-
-/* ================== FLEX BASIC ================== */
-const flexText = (title, body) => ({
-  type: "flex",
-  altText: title,
-  contents: {
-    type: "bubble",
-    body: {
-      type: "box",
-      layout: "vertical",
-      contents: [
-        { type: "text", text: title, weight: "bold", size: "lg" },
-        { type: "separator", margin: "md" },
-        { type: "text", text: body, wrap: true, margin: "md" }
-      ]
-    }
-  }
-});
 
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
@@ -98,8 +82,9 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       if (event.type !== "message") continue;
 
       const uid = event.source.userId;
-      const groupId =
-        event.source.type === "group" ? event.source.groupId : null;
+      const groupId = event.source.type === "group"
+        ? event.source.groupId
+        : null;
 
       /* INIT PLAYER */
       if (!game.players[uid]) {
@@ -111,15 +96,10 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         };
         savePlayers(game.players);
       }
-
       const p = game.players[uid];
 
-      /* BLOCK UNAUTHORIZED GROUP */
-      if (
-        groupId &&
-        p.role === "player" &&
-        !ALLOWED_GROUPS.includes(groupId)
-      ) {
+      /* BLOCK GROUP */
+      if (groupId && p.role === "player" && !ALLOWED_GROUPS.includes(groupId)) {
         await safeReply(event, flexText("❌ ไม่ได้รับอนุญาต", ""));
         continue;
       }
@@ -127,23 +107,30 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       if (event.message.type !== "text") continue;
       const text = event.message.text.trim();
 
-      /* ================== PLAYER ================== */
-      if (text === "เครดิต") {
+      /* ===== MENUS ===== */
+      if (text === "เมนู")
+        return await safeReply(event, playerMenuFlex());
+      if (text === "เมนูแอดมิน" && p.role !== "player")
+        return await safeReply(event, adminMenuFlex());
+
+      /* ===== CREDIT ===== */
+      if (text === "เครดิต")
         return await safeReply(
           event,
-          flexText("💰 เครดิตของคุณ", `${p.credit}`)
+          flexText("💰 เครดิตคงเหลือ", `${p.credit}`)
         );
+
+      /* ===== MANUAL ADD CREDIT ===== */
+      if (p.role !== "player" && text.startsWith("เติมเอง ")) {
+        const targetUid = text.replace("เติมเอง ", "").trim();
+        if (!game.players[targetUid])
+          return await safeReply(event, flexText("❌ ไม่พบ UID", ""));
+        return await safeReply(event, addCreditManualFlex(targetUid));
       }
 
-      /* ================== MANUAL ADD CREDIT ================== */
-      // +500 Uxxxx
       if (p.role !== "player" && /^\+\d+\sU/.test(text)) {
-        const [amtText, targetUid] = text.split(" ");
-        const amount = parseInt(amtText.replace("+", ""), 10);
-
-        if (!game.players[targetUid])
-          return await safeReply(event, flexText("❌ ไม่พบผู้เล่น", ""));
-
+        const [amtTxt, targetUid] = text.split(" ");
+        const amount = parseInt(amtTxt.replace("+", ""));
         game.players[targetUid].credit += amount;
         savePlayers(game.players);
 
@@ -156,40 +143,30 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
         await client.pushMessage(
           targetUid,
-          flexText("🎁 เติมเครดิต", `+${amount}`)
+          flexText("🎁 เติมเครดิต", `+${amount}\nเครดิต ${game.players[targetUid].credit}`)
         );
-
         return await safeReply(event, flexText("✅ เติมสำเร็จ", ""));
       }
 
-      /* ================== WITHDRAW ================== */
+      /* ===== WITHDRAW ===== */
       if (text.startsWith("ถอน ")) {
-        const amt = parseInt(text.replace("ถอน ", ""), 10);
-        if (isNaN(amt) || amt <= 0)
-          return await safeReply(event, flexText("❌ จำนวนไม่ถูกต้อง", ""));
-        if (p.credit < amt)
-          return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
-
+        const amt = parseFloat(text.replace("ถอน ", ""));
+        if (!amt || amt <= 0 || p.credit < amt)
+          return await safeReply(event, flexText("❌ ยอดไม่ถูกต้อง", ""));
         p.withdrawReq = amt;
         savePlayers(game.players);
 
         for (const o of ADMIN_OWNER) {
-          await client.pushMessage(
-            o,
-            flexText("📤 ขอถอน", `UID: ${uid}\nยอด: ${amt}`)
-          );
+          await client.pushMessage(o, approveWithdrawFlex(uid, amt));
         }
-
         return await safeReply(event, flexText("⏳ รออนุมัติ", ""));
       }
 
-      /* ================== APPROVE WITHDRAW ================== */
       if (p.role !== "player" && text.startsWith("/approve ")) {
-        const tuid = text.replace("/approve ", "").trim();
+        const tuid = text.replace("/approve ", "");
         const tp = game.players[tuid];
         if (!tp || !tp.withdrawReq)
           return await safeReply(event, flexText("❌ ไม่พบรายการ", ""));
-
         tp.credit -= tp.withdrawReq;
 
         addFinanceLog({
@@ -206,19 +183,15 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
           tuid,
           flexText("✅ ถอนสำเร็จ", `เครดิต ${tp.credit}`)
         );
-
         return await safeReply(event, flexText("อนุมัติแล้ว", ""));
       }
 
-      /* ================== GAME CONTROL ================== */
+      /* ===== GAME CONTROL ===== */
       if (text === "เปิดรอบ" && p.role !== "player") {
         game.round++;
         game.status = "open";
-        Object.values(game.players).forEach(pl => (pl.bets = {}));
-        return await safeReply(
-          event,
-          flexText("🟢 เปิดรอบ", `รอบ ${game.round}`)
-        );
+        Object.values(game.players).forEach(pl => pl.bets = {});
+        return await safeReply(event, flexText("🟢 เปิดรอบ", `รอบ ${game.round}`));
       }
 
       if (text === "ปิดรอบ" && p.role !== "player") {
@@ -226,71 +199,70 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
         return await safeReply(event, flexText("🔴 ปิดรอบ", ""));
       }
 
-      /* ================== BET ================== */
+      /* ===== BET ===== */
       const m = text.match(/^([\d,]+)\/(\d+)$/);
       if (m && game.status === "open") {
         const legs = m[1].split(",").map(Number);
-        const amt = parseInt(m[2], 10);
+        const amt = parseInt(m[2]);
         const cost = legs.length * amt;
-
         if (p.credit < cost)
           return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
-
         p.credit -= cost;
-        legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
+        legs.forEach(l => p.bets[l] = (p.bets[l] || 0) + amt);
         savePlayers(game.players);
-
-        return await safeReply(
-          event,
-          flexText("✅ รับโพย", `หัก ${cost}\nคงเหลือ ${p.credit}`)
-        );
+        return await safeReply(event, flexText("✅ รับโพย", `เครดิต ${p.credit}`));
       }
 
-      /* ================== RESULT INPUT ================== */
+      /* ===== RESULT PREVIEW ===== */
       if (/^S/i.test(text) && p.role !== "player") {
         const cards = parseResult(text);
         const banker = cards[6];
         const bankerPoint = calcPoint(banker);
 
         const legs = cards.slice(0, 6).map((c, i) => ({
-          no: i + 1,
-          win: compare(c, banker) > 0,
-          text: `${calcPoint(c)} แต้ม`
+          leg: i + 1,
+          point: calcPoint(c),
+          result: compare(c, banker)
         }));
 
-        game.tempResult = { cards };
+        game.tempResult = { cards, legs, bankerPoint };
 
         return await safeReply(
           event,
-          resultFlex(game.round, bankerPoint, legs)
+          resultPreviewFlex(game.round, bankerPoint, legs)
         );
       }
 
-      /* ================== CONFIRM RESULT ================== */
+      /* ===== CONFIRM RESULT ===== */
       if ((text === "Y" || text === "y") && p.role !== "player" && game.tempResult) {
-        const banker = game.tempResult.cards[6];
+        const summary = [];
 
         for (const id in game.players) {
           const pl = game.players[id];
           let net = 0;
-
           for (const leg in pl.bets) {
-            const r = compare(game.tempResult.cards[leg - 1], banker);
+            const r = compare(
+              game.tempResult.cards[leg - 1],
+              game.tempResult.cards[6]
+            );
             const bet = pl.bets[leg];
             if (r === 2) net += bet * 2;
             if (r === 1) net += bet;
             if (r === -1) net -= bet;
             if (r === -2) net -= bet * 2;
           }
-
           pl.credit += net;
+          summary.push({ uid: id, net, credit: pl.credit });
           pl.bets = {};
         }
 
         savePlayers(game.players);
         game.tempResult = null;
 
-        return await safeReply(event, flexText("🏆 สรุปรอบ", "เรียบร้อย"));
+        return await safeReply(
+          event,
+          resultSummaryFlex(game.round, summary)
+        );
       }
 
     } catch (e) {
@@ -302,5 +274,5 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
 /* ================== SERVER ================== */
 app.listen(process.env.PORT || 3000, () =>
-  console.log("BOT RUNNING – FINAL SELL")
+  console.log("BOT RUNNING – FINAL SELL VERSION")
 );
