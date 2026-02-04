@@ -161,6 +161,30 @@ if (
       if (text === "เมนูแอดมิน" && p.role !== "player")
         return await safeReply(event, adminMenuFlex());
 
+       /* ===== CHECK ID / ROOM ===== */
+if (text === "เช็คไอดี") {
+  return await safeReply(
+    event,
+    checkIdFlex(
+      uid,
+      p.role,
+      p.credit
+    )
+  );
+}
+
+if (text === "เช็คห้อง") {
+  const roomInfo =
+    event.source.type === "group"
+      ? `GROUP ID:\n${event.source.groupId}`
+      : "แชทส่วนตัว (ไม่มี Group ID)";
+
+  return await safeReply(
+    event,
+    flexText("🏷️ ROOM INFO", roomInfo)
+  );
+}
+       
       /* ===== CREDIT ===== */
       if (text === "เครดิต")
         return await safeReply(
