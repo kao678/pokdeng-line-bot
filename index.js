@@ -40,10 +40,10 @@ const ocrClient = new vision.ImageAnnotatorClient();
 let game = {
   round: 156,
   status: "close",
-  players: {},
-  tempResult: null
+  players: loadPlayers(), // 👈 โหลดจากไฟล์
+  tempResult: null,
+  summaryMode: "flex"
 };
-
 let financeLog = []; // ประวัติฝาก–ถอน
 
 /* ================== UTILS ================== */
