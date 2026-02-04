@@ -1,46 +1,106 @@
+/* =====================================================
+   FLEX – RESULT DISPLAY (POKDENG)
+   ใช้แสดงผลไพ่ / เด้ง / ชนะ / แพ้
+   ===================================================== */
+
 function resultFlex(round, bankerPoint, legs) {
   return {
     type: "flex",
-    altText: "ผลป๊อกเด้ง",
+    altText: `ผลรอบ ${round}`,
     contents: {
       type: "bubble",
-      body: {
+      size: "mega",
+      header: {
         type: "box",
         layout: "vertical",
         contents: [
-          { type: "text", text: "POK อะจ้า", weight: "bold", size: "xl", align: "center" },
-          { type: "text", text: "ตรวจสอบผลที่ออก", align: "center", color: "#666" },
-          { type: "separator", margin: "md" },
-          { type: "text", text: `เปิดที่ ${round}`, align: "center", weight: "bold", margin: "md" },
-          { type: "text", text: `ขาเจ้า ${bankerPoint} แต้ม`, align: "center", margin: "md" },
-
-          {
-            type: "box",
-            layout: "vertical",
-            spacing: "sm",
-            margin: "lg",
-            contents: legs.map(l => ({
-              type: "box",
-              layout: "vertical",
-              backgroundColor: l.win ? "#4A90E2" : "#E74C3C",
-              cornerRadius: "md",
-              paddingAll: "sm",
-              contents: [{
-                type: "text",
-                text: `ขา ${l.no}\n${l.text}`,
-                align: "center",
-                color: "#FFF"
-              }]
-            }))
-          },
-
           {
             type: "text",
-            text: "ยืนยันผลสรุป y หรือ Y",
-            align: "center",
+            text: "🃏 ผลป๊อกเด้ง",
+            weight: "bold",
+            size: "xl",
+            align: "center"
+          },
+          {
+            type: "text",
+            text: `รอบที่ ${round}`,
             size: "sm",
-            color: "#999",
-            margin: "lg"
+            align: "center",
+            color: "#888888"
+          }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "baseline",
+            contents: [
+              {
+                type: "text",
+                text: "👑 เจ้ามือ",
+                weight: "bold",
+                size: "md"
+              },
+              {
+                type: "text",
+                text: `${bankerPoint} แต้ม`,
+                align: "end",
+                weight: "bold",
+                color: "#ff4757"
+              }
+            ]
+          },
+          {
+            type: "separator",
+            margin: "md"
+          },
+          ...legs.map(l => ({
+            type: "box",
+            layout: "baseline",
+            contents: [
+              {
+                type: "text",
+                text: `ขา ${l.no}`,
+                size: "md",
+                flex: 1
+              },
+              {
+                type: "text",
+                text: l.text,
+                size: "sm",
+                color: "#555555",
+                flex: 2
+              },
+              {
+                type: "text",
+                text: l.win ? "✅ ชนะ" : "❌ แพ้",
+                size: "sm",
+                weight: "bold",
+                align: "end",
+                color: l.win ? "#06c755" : "#ff4757"
+              }
+            ]
+          }))
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#1e90ff",
+            action: {
+              type: "message",
+              label: "✔ ยืนยันผล (Y)",
+              text: "Y"
+            }
           }
         ]
       }
