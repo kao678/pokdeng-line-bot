@@ -87,6 +87,13 @@ const safeReply = async (event, msg) => {
   catch (e) { console.error("REPLY ERROR:", e.message); }
 };
 
+/* ================== ROOM CHECK ================== */
+const isPlayRoom = source =>
+  source.type === "group" && PLAY_ROOM_IDS.includes(source.groupId);
+
+const isFinanceRoom = source =>
+  source.type === "group" && FINANCE_ROOM_IDS.includes(source.groupId);
+
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   for (const event of req.body.events) {
