@@ -172,6 +172,6 @@ module.exports = {
   resultPreviewFlex,
   resultSummaryFlex,
   addCreditManualFlex,
-  approveWithdrawFlex
+  approveWithdrawFlex,
+  checkIdFlex
 };
-
