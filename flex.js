@@ -107,5 +107,133 @@ function resultFlex(round, bankerPoint, legs) {
     }
   };
 }
+/* ================== FLEX RESULT LIKE IMAGE ================== */
+const pokResultFlex = (round, bankerPoint, legs) => ({
+  type: "flex",
+  altText: `ผลรอบ ${round}`,
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#19b5fe",
+          paddingAll: "12px",
+          contents: [
+            {
+              type: "text",
+              text: "POK อ๊ะจ๋า",
+              weight: "bold",
+              size: "lg",
+              color: "#ffffff",
+              align: "center"
+            },
+            {
+              type: "text",
+              text: "ตรวจสอบผลที่ออก",
+              size: "sm",
+              color: "#ffffff",
+              align: "center"
+            }
+          ]
+        },
+
+        {
+          type: "text",
+          text: `เปิดที่ ${round}`,
+          weight: "bold",
+          size: "lg",
+          align: "center"
+        },
+
+        {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#eeeeee",
+          paddingAll: "10px",
+          cornerRadius: "md",
+          contents: [
+            {
+              type: "text",
+              text: `ขา เจ้า\n${bankerPoint} แต้ม`,
+              align: "center",
+              weight: "bold"
+            }
+          ]
+        },
+
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "md",
+          contents: legs.slice(0, 3).map(l => ({
+            type: "box",
+            layout: "vertical",
+            backgroundColor: l.win ? "#6fa8dc" : "#e06666",
+            cornerRadius: "md",
+            paddingAll: "10px",
+            contents: [
+              {
+                type: "text",
+                text: `ขา ${l.no}`,
+                weight: "bold",
+                align: "center",
+                color: "#ffffff"
+              },
+              {
+                type: "text",
+                text: l.text,
+                size: "sm",
+                align: "center",
+                color: "#ffffff"
+              }
+            ]
+          }))
+        },
+
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "md",
+          contents: legs.slice(3, 6).map(l => ({
+            type: "box",
+            layout: "vertical",
+            backgroundColor: l.win ? "#6fa8dc" : "#e06666",
+            cornerRadius: "md",
+            paddingAll: "10px",
+            contents: [
+              {
+                type: "text",
+                text: `ขา ${l.no}`,
+                weight: "bold",
+                align: "center",
+                color: "#ffffff"
+              },
+              {
+                type: "text",
+                text: l.text,
+                size: "sm",
+                align: "center",
+                color: "#ffffff"
+              }
+            ]
+          }))
+        },
+
+        {
+          type: "text",
+          text: "ยืนยันผลสรุป y หรือ Y",
+          size: "sm",
+          align: "center",
+          color: "#888888"
+        }
+      ]
+    }
+  }
+});
 
 module.exports = { resultFlex };
