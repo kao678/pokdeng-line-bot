@@ -97,6 +97,50 @@ const resultSummaryFlex = (round, summary) => ({
   }
 });
 
+/* ================== RESULT SUMMARY PRO (สวยขายจริง) ================== */
+const resultSummaryProFlex = (round, summary) => ({
+  type: "flex",
+  altText: "สรุปยอดรอบ",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        {
+          type: "text",
+          text: `🏆 สรุปรอบที่ ${round}`,
+          weight: "bold",
+          size: "lg",
+          align: "center"
+        },
+        { type: "separator" },
+        ...summary.map(s => ({
+          type: "box",
+          layout: "horizontal",
+          contents: [
+            {
+              type: "text",
+              text: s.name || s.uid.slice(0,6),
+              flex: 3,
+              wrap: true
+            },
+            {
+              type: "text",
+              text: `${s.net >= 0 ? "+" : ""}${s.net}`,
+              flex: 2,
+              align: "end",
+              color: s.net >= 0 ? "#06C755" : "#FF334B",
+              weight: "bold"
+            }
+          ]
+        }))
+      ]
+    }
+  }
+});
+
 /* ================== FINANCE FLEX ================== */
 const addCreditManualFlex = uid => ({
   type: "flex",
