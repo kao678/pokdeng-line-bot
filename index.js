@@ -16,6 +16,8 @@ const {
   addCreditManualFlex,
   approveWithdrawFlex,
   flexText
+  checkIdFlex
+   
 } = require("./flex");
 
 /* ================== CONFIG ================== */
