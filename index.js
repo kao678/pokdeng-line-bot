@@ -1,5 +1,5 @@
 /* =====================================================
-   POKDENG LINE BOT – BULLETPROOF SELL VERSION
+   POKDENG LINE BOT – FINAL SELL / BULLETPROOF VERSION
    ===================================================== */
 
 /* ================== IMPORT ================== */
@@ -25,7 +25,7 @@ const PLAYER_FILE = path.join(DATA_DIR, "players.json");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(PLAYER_FILE)) fs.writeFileSync(PLAYER_FILE, "{}");
 
-const safeReadPlayers = () => {
+const readPlayers = () => {
   try {
     return JSON.parse(fs.readFileSync(PLAYER_FILE, "utf8"));
   } catch {
@@ -33,7 +33,7 @@ const safeReadPlayers = () => {
   }
 };
 
-const safeSavePlayers = data => {
+const savePlayers = data => {
   try {
     fs.writeFileSync(PLAYER_FILE, JSON.stringify(data, null, 2));
   } catch (e) {
@@ -49,14 +49,12 @@ const BANK_ACCOUNT = {
 };
 const RECEIVER_NAMES = ["ชนากา กองสูง"];
 
-/* 👑 OWNER / ADMIN */
+/* ================== ROLE ================== */
 const ADMIN_OWNER = [
   "Uab107367b6017b2b5fede655841f715c",
   "U84e79aaade836e9197263bf711348de0"
 ];
 const ADMIN_SUB = [];
-
-/* 🔒 กลุ่มที่อนุญาต */
 const ALLOWED_GROUPS = ["C682703c2206d1abb1adb7f7c2ca8284c"];
 
 /* ================== INIT ================== */
@@ -68,11 +66,11 @@ const ocrClient = new vision.ImageAnnotatorClient();
 let game = {
   round: 1,
   status: "close",
-  players: safeReadPlayers(),
+  players: readPlayers(),
   tempResult: null
 };
 
-/* ================== SAFE REPLY (กัน 499) ================== */
+/* ================== SAFE REPLY ================== */
 const safeReply = async (event, msg) => {
   try {
     await client.replyMessage(event.replyToken, msg);
@@ -93,7 +91,7 @@ const flexText = (title, body) => ({
       contents: [
         { type: "text", text: title, weight: "bold", size: "lg" },
         { type: "separator", margin: "md" },
-        { type: "text", text: body, margin: "md", wrap: true }
+        { type: "text", text: body, wrap: true, margin: "md" }
       ]
     }
   }
@@ -144,7 +142,69 @@ const adminMenuFlex = () => ({
   }
 });
 
-/* ================== OCR HELPERS ================== */
+/* ================== FLEX เติมเครดิต (ใส่จำนวนเอง) ================== */
+const addCreditManualFlex = targetUid => ({
+  type: "flex",
+  altText: "เติมเครดิต",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: "➕ เติมเครดิต (ใส่จำนวนเอง)", weight: "bold" },
+        { type: "text", text: `UID:\n${targetUid}`, wrap: true, size: "sm" },
+        {
+          type: "button",
+          style: "primary",
+          action: {
+            type: "message",
+            label: "+500",
+            text: `+500 ${targetUid}`
+          }
+        },
+        {
+          type: "button",
+          style: "primary",
+          action: {
+            type: "message",
+            label: "+1000",
+            text: `+1000 ${targetUid}`
+          }
+        }
+      ]
+    }
+  }
+});
+
+/* ================== FLEX อนุมัติถอน ================== */
+const approveWithdrawFlex = (uid, amount) => ({
+  type: "flex",
+  altText: "อนุมัติถอน",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: "📤 ขอถอนเครดิต", weight: "bold" },
+        { type: "text", text: `UID: ${uid}\nยอด: ${amount}` },
+        {
+          type: "button",
+          style: "primary",
+          color: "#06c755",
+          action: {
+            type: "message",
+            label: "✅ อนุมัติ",
+            text: `/approve ${uid}`
+          }
+        }
+      ]
+    }
+  }
+});
+
+/* ================== OCR ================== */
 const downloadSlip = async id => {
   const url = `https://api-data.line.me/v2/bot/message/${id}/content`;
   const res = await axios.get(url, {
@@ -164,14 +224,6 @@ const extractAmount = text => {
   return m ? parseFloat(m[1]) : null;
 };
 
-const extractTX = text => {
-  const m = text.match(/(TX|Ref|Transaction).*?([A-Z0-9]+)/i);
-  return m ? m[2] : null;
-};
-
-const matchReceiver = text =>
-  RECEIVER_NAMES.some(n => text.includes(n));
-
 /* ================== WEBHOOK ================== */
 app.post("/webhook", line.middleware(config), async (req, res) => {
   for (const event of req.body.events) {
@@ -181,183 +233,75 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
       const uid = event.source.userId;
       const groupId = event.source.type === "group" ? event.source.groupId : null;
 
-      /* INIT PLAYER */
       if (!game.players[uid]) {
         game.players[uid] = {
           credit: 0,
           bets: {},
-          role: ADMIN_OWNER.includes(uid)
-            ? "owner"
-            : ADMIN_SUB.includes(uid)
-            ? "admin"
-            : "player",
+          role: ADMIN_OWNER.includes(uid) ? "owner" : "player",
           pendingDeposit: false,
-          usedSlip: [],
           withdrawReq: null
         };
-        safeSavePlayers(game.players);
+        savePlayers(game.players);
       }
+
       const p = game.players[uid];
 
-      /* BLOCK GROUP */
       if (groupId && p.role === "player" && !ALLOWED_GROUPS.includes(groupId)) {
         await safeReply(event, flexText("❌ ไม่ได้รับอนุญาต", ""));
         continue;
       }
 
-      /* IMAGE = ฝากเงิน */
-      if (event.message.type === "image") {
-        if (!p.pendingDeposit)
-          return await safeReply(event, flexText("❌ ยังไม่ได้เลือกฝาก", ""));
-        const buf = await downloadSlip(event.message.id);
-        const text = await readSlip(buf);
-
-        if (!matchReceiver(text))
-          return await safeReply(event, flexText("❌ บัญชีไม่ตรง", ""));
-
-        const tx = extractTX(text);
-        if (tx && p.usedSlip.includes(tx))
-          return await safeReply(event, flexText("❌ สลิปซ้ำ", ""));
-
-        const amount = extractAmount(text);
-        if (!amount)
-          return await safeReply(event, flexText("❌ อ่านยอดไม่ได้", ""));
-
-        p.credit += amount;
-        p.pendingDeposit = false;
-        if (tx) p.usedSlip.push(tx);
-        safeSavePlayers(game.players);
-
-        return await safeReply(
-          event,
-          flexText("✅ ฝากสำเร็จ", `💰 เครดิต ${p.credit}`)
-        );
-      }
-
       if (event.message.type !== "text") continue;
       const text = event.message.text.trim();
 
-      /* MENUS */
       if (text === "เมนู") return await safeReply(event, playerMenuFlex());
       if (text === "เมนูแอดมิน" && p.role !== "player")
         return await safeReply(event, adminMenuFlex());
 
-      /* USER */
-      if (text === "เมนูฝาก") {
-        p.pendingDeposit = true;
-        safeSavePlayers(game.players);
-        return await safeReply(
-          event,
-          flexText(
-            "📸 ฝากเครดิต",
-            `${BANK_ACCOUNT.bank}\n${BANK_ACCOUNT.name}\n${BANK_ACCOUNT.number}`
-          )
-        );
+      /* เติมเครดิต manual */
+      if (p.role !== "player" && text.startsWith("เติมเอง ")) {
+        const targetUid = text.replace("เติมเอง ", "").trim();
+        if (!game.players[targetUid])
+          return await safeReply(event, flexText("❌ ไม่พบ UID", ""));
+        return await safeReply(event, addCreditManualFlex(targetUid));
       }
 
-      if (text === "เครดิต")
-        return await safeReply(
-          event,
-          flexText("💰 เครดิตคงเหลือ", `${p.credit}`)
+      if (p.role !== "player" && /^\+\d+\sU/.test(text)) {
+        const [amtText, targetUid] = text.split(" ");
+        const amount = parseInt(amtText.replace("+", ""), 10);
+        game.players[targetUid].credit += amount;
+        savePlayers(game.players);
+
+        await client.pushMessage(
+          targetUid,
+          flexText("🎁 เติมเครดิต", `+${amount}\nเครดิต ${game.players[targetUid].credit}`)
         );
 
+        return await safeReply(event, flexText("✅ เติมสำเร็จ", ""));
+      }
+
+      /* ถอน */
       if (text.startsWith("ถอน ")) {
         const amt = parseFloat(text.replace("ถอน ", ""));
-        if (!amt || amt <= 0)
-          return await safeReply(event, flexText("❌ จำนวนไม่ถูกต้อง", ""));
-        if (p.credit < amt)
-          return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
-
         p.withdrawReq = amt;
-        safeSavePlayers(game.players);
+        savePlayers(game.players);
 
         for (const o of ADMIN_OWNER) {
-          await client.pushMessage(
-            o,
-            flexText("📤 แจ้งถอน", `UID: ${uid}\nยอด ${amt}`)
-          );
+          await client.pushMessage(o, approveWithdrawFlex(uid, amt));
         }
         return await safeReply(event, flexText("⏳ รออนุมัติ", ""));
       }
 
-      /* ADMIN APPROVE */
       if (p.role !== "player" && text.startsWith("/approve ")) {
         const tuid = text.replace("/approve ", "").trim();
         const tp = game.players[tuid];
-        if (!tp || !tp.withdrawReq)
-          return await safeReply(event, flexText("❌ ไม่พบรายการ", ""));
-
         tp.credit -= tp.withdrawReq;
         tp.withdrawReq = null;
-        safeSavePlayers(game.players);
-
-        await client.pushMessage(
-          tuid,
-          flexText("✅ ถอนสำเร็จ", `เครดิต ${tp.credit}`)
-        );
-        return await safeReply(event, flexText("✅ อนุมัติแล้ว", ""));
+        savePlayers(game.players);
+        await client.pushMessage(tuid, flexText("✅ ถอนสำเร็จ", `เครดิต ${tp.credit}`));
+        return await safeReply(event, flexText("อนุมัติแล้ว", ""));
       }
 
-      /* GAME CONTROL */
-      if (text === "เปิดรอบ" && p.role !== "player") {
-        game.round++;
-        game.status = "open";
-        Object.values(game.players).forEach(pl => (pl.bets = {}));
-        return await safeReply(event, flexText("🟢 เปิดรอบ", `รอบ ${game.round}`));
-      }
-
-      if (text === "ปิดรอบ" && p.role !== "player") {
-        game.status = "close";
-        return await safeReply(event, flexText("🔴 ปิดรอบ", ""));
-      }
-
-      /* BET */
-      const m = text.match(/^([\d,]+)\/(\d+)$/);
-      if (m && game.status === "open") {
-        const legs = m[1].split(",").map(Number);
-        const amt = parseInt(m[2], 10);
-        const cost = legs.length * amt;
-        if (p.credit < cost)
-          return await safeReply(event, flexText("❌ เครดิตไม่พอ", ""));
-        p.credit -= cost;
-        legs.forEach(l => (p.bets[l] = (p.bets[l] || 0) + amt));
-        safeSavePlayers(game.players);
-        return await safeReply(
-          event,
-          flexText("✅ รับโพย", `เครดิต ${p.credit}`)
-        );
-      }
-
-      /* RESULT */
-      if (/^S/i.test(text) && p.role !== "player") {
-        const cards = parseResult(text);
-        game.tempResult = { cards };
-        return await safeReply(
-          event,
-          resultFlex(game.round, calcPoint(cards[6]), [])
-        );
-      }
-
-      if ((text === "Y" || text === "y") && p.role !== "player" && game.tempResult) {
-        const banker = game.tempResult.cards[6];
-        for (const id in game.players) {
-          const pl = game.players[id];
-          let net = 0;
-          for (const leg in pl.bets) {
-            const r = compare(game.tempResult.cards[leg - 1], banker);
-            const bet = pl.bets[leg];
-            if (r === 2) net += bet * 2;
-            if (r === 1) net += bet;
-            if (r === -1) net -= bet;
-            if (r === -2) net -= bet * 2;
-          }
-          pl.credit += net;
-          pl.bets = {};
-        }
-        safeSavePlayers(game.players);
-        game.tempResult = null;
-        return await safeReply(event, flexText("🏆 สรุปรอบ", "เรียบร้อย"));
-      }
     } catch (e) {
       console.error("EVENT ERROR:", e);
     }
@@ -367,5 +311,5 @@ app.post("/webhook", line.middleware(config), async (req, res) => {
 
 /* ================== SERVER ================== */
 app.listen(process.env.PORT || 3000, () =>
-  console.log("BOT RUNNING – BULLETPROOF")
+  console.log("BOT RUNNING – FINAL SELL VERSION")
 );
