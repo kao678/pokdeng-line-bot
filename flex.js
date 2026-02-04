@@ -1,116 +1,25 @@
-/* =====================================================
-   FLEX – RESULT DISPLAY (POKDENG)
-   ใช้แสดงผลไพ่ / เด้ง / ชนะ / แพ้
-   ===================================================== */
-
-function resultFlex(round, bankerPoint, legs) {
-  return {
-    type: "flex",
-    altText: `ผลรอบ ${round}`,
-    contents: {
-      type: "bubble",
-      size: "mega",
-      header: {
-        type: "box",
-        layout: "vertical",
-        contents: [
-          {
-            type: "text",
-            text: "🃏 ผลป๊อกเด้ง",
-            weight: "bold",
-            size: "xl",
-            align: "center"
-          },
-          {
-            type: "text",
-            text: `รอบที่ ${round}`,
-            size: "sm",
-            align: "center",
-            color: "#888888"
-          }
-        ]
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        spacing: "md",
-        contents: [
-          {
-            type: "box",
-            layout: "baseline",
-            contents: [
-              {
-                type: "text",
-                text: "👑 เจ้ามือ",
-                weight: "bold",
-                size: "md"
-              },
-              {
-                type: "text",
-                text: `${bankerPoint} แต้ม`,
-                align: "end",
-                weight: "bold",
-                color: "#ff4757"
-              }
-            ]
-          },
-          {
-            type: "separator",
-            margin: "md"
-          },
-          ...legs.map(l => ({
-            type: "box",
-            layout: "baseline",
-            contents: [
-              {
-                type: "text",
-                text: `ขา ${l.no}`,
-                size: "md",
-                flex: 1
-              },
-              {
-                type: "text",
-                text: l.text,
-                size: "sm",
-                color: "#555555",
-                flex: 2
-              },
-              {
-                type: "text",
-                text: l.win ? "✅ ชนะ" : "❌ แพ้",
-                size: "sm",
-                weight: "bold",
-                align: "end",
-                color: l.win ? "#06c755" : "#ff4757"
-              }
-            ]
-          }))
-        ]
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        spacing: "sm",
-        contents: [
-          {
-            type: "button",
-            style: "primary",
-            color: "#1e90ff",
-            action: {
-              type: "message",
-              label: "✔ ยืนยันผล (Y)",
-              text: "Y"
-            }
-          }
-        ]
-      }
-    }
-  };
-}
-/* ================== FLEX RESULT LIKE IMAGE ================== */
-const pokResultFlex = (round, bankerPoint, legs) => ({
+/* ================== FLEX TEXT ================== */
+const flexText = (title, body) => ({
   type: "flex",
-  altText: `ผลรอบ ${round}`,
+  altText: title,
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: title, weight: "bold", size: "lg" },
+        { type: "separator", margin: "md" },
+        { type: "text", text: body, wrap: true, margin: "md" }
+      ]
+    }
+  }
+});
+
+/* ================== MENUS ================== */
+const playerMenuFlex = () => ({
+  type: "flex",
+  altText: "เมนูผู้เล่น",
   contents: {
     type: "bubble",
     body: {
@@ -118,122 +27,117 @@ const pokResultFlex = (round, bankerPoint, legs) => ({
       layout: "vertical",
       spacing: "md",
       contents: [
-        {
-          type: "box",
-          layout: "vertical",
-          backgroundColor: "#19b5fe",
-          paddingAll: "12px",
-          contents: [
-            {
-              type: "text",
-              text: "POK อ๊ะจ๋า",
-              weight: "bold",
-              size: "lg",
-              color: "#ffffff",
-              align: "center"
-            },
-            {
-              type: "text",
-              text: "ตรวจสอบผลที่ออก",
-              size: "sm",
-              color: "#ffffff",
-              align: "center"
-            }
-          ]
-        },
-
-        {
-          type: "text",
-          text: `เปิดที่ ${round}`,
-          weight: "bold",
-          size: "lg",
-          align: "center"
-        },
-
-        {
-          type: "box",
-          layout: "vertical",
-          backgroundColor: "#eeeeee",
-          paddingAll: "10px",
-          cornerRadius: "md",
-          contents: [
-            {
-              type: "text",
-              text: `ขา เจ้า\n${bankerPoint} แต้ม`,
-              align: "center",
-              weight: "bold"
-            }
-          ]
-        },
-
-        {
-          type: "box",
-          layout: "horizontal",
-          spacing: "md",
-          contents: legs.slice(0, 3).map(l => ({
-            type: "box",
-            layout: "vertical",
-            backgroundColor: l.win ? "#6fa8dc" : "#e06666",
-            cornerRadius: "md",
-            paddingAll: "10px",
-            contents: [
-              {
-                type: "text",
-                text: `ขา ${l.no}`,
-                weight: "bold",
-                align: "center",
-                color: "#ffffff"
-              },
-              {
-                type: "text",
-                text: l.text,
-                size: "sm",
-                align: "center",
-                color: "#ffffff"
-              }
-            ]
-          }))
-        },
-
-        {
-          type: "box",
-          layout: "horizontal",
-          spacing: "md",
-          contents: legs.slice(3, 6).map(l => ({
-            type: "box",
-            layout: "vertical",
-            backgroundColor: l.win ? "#6fa8dc" : "#e06666",
-            cornerRadius: "md",
-            paddingAll: "10px",
-            contents: [
-              {
-                type: "text",
-                text: `ขา ${l.no}`,
-                weight: "bold",
-                align: "center",
-                color: "#ffffff"
-              },
-              {
-                type: "text",
-                text: l.text,
-                size: "sm",
-                align: "center",
-                color: "#ffffff"
-              }
-            ]
-          }))
-        },
-
-        {
-          type: "text",
-          text: "ยืนยันผลสรุป y หรือ Y",
-          size: "sm",
-          align: "center",
-          color: "#888888"
-        }
+        { type: "text", text: "🎮 เมนูผู้เล่น", weight: "bold", size: "lg" },
+        { type: "button", style: "primary",
+          action: { type: "message", label: "💰 เครดิต", text: "เครดิต" }},
+        { type: "button", style: "secondary",
+          action: { type: "message", label: "📤 ถอน", text: "ถอน 100" }}
       ]
     }
   }
 });
 
-module.exports = { resultFlex };
+const adminMenuFlex = () => ({
+  type: "flex",
+  altText: "เมนูแอดมิน",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "👑 เมนูแอดมิน", weight: "bold", size: "lg" },
+        { type: "button", action: { type: "message", label: "🟢 เปิดรอบ", text: "เปิดรอบ" }},
+        { type: "button", action: { type: "message", label: "🔴 ปิดรอบ", text: "ปิดรอบ" }}
+      ]
+    }
+  }
+});
+
+/* ================== RESULT PREVIEW ================== */
+const resultPreviewFlex = (round, bankerPoint, legs) => ({
+  type: "flex",
+  altText: "ผลรอบ",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: `เปิดที่ ${round}`, weight: "bold" },
+        { type: "text", text: `ขาเจ้า ${bankerPoint} แต้ม`, margin: "md" },
+        ...legs.map(l => ({
+          type: "text",
+          text: `ขา ${l.leg} : ${l.point} แต้ม`
+        })),
+        { type: "text", text: "พิมพ์ Y เพื่อยืนยัน", margin: "md" }
+      ]
+    }
+  }
+});
+
+/* ================== RESULT SUMMARY ================== */
+const resultSummaryFlex = (round, summary) => ({
+  type: "flex",
+  altText: "สรุปรอบ",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: `🏆 สรุปรอบ ${round}`, weight: "bold" },
+        ...summary.map(s => ({
+          type: "text",
+          text: `${s.uid.slice(0,6)} : ${s.net >= 0 ? "+" : ""}${s.net} → ${s.credit}`
+        }))
+      ]
+    }
+  }
+});
+
+/* ================== FINANCE FLEX ================== */
+const addCreditManualFlex = uid => ({
+  type: "flex",
+  altText: "เติมเครดิต",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: "➕ เติมเครดิต", weight: "bold" },
+        { type: "button", action: { type: "message", label: "+500", text: `+500 ${uid}` }},
+        { type: "button", action: { type: "message", label: "+1000", text: `+1000 ${uid}` }}
+      ]
+    }
+  }
+});
+
+const approveWithdrawFlex = (uid, amt) => ({
+  type: "flex",
+  altText: "อนุมัติถอน",
+  contents: {
+    type: "bubble",
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        { type: "text", text: `ขอถอน ${amt}`, weight: "bold" },
+        { type: "button", style: "primary",
+          action: { type: "message", label: "อนุมัติ", text: `/approve ${uid}` }}
+      ]
+    }
+  }
+});
+
+module.exports = {
+  flexText,
+  playerMenuFlex,
+  adminMenuFlex,
+  resultPreviewFlex,
+  resultSummaryFlex,
+  addCreditManualFlex,
+  approveWithdrawFlex
+};
