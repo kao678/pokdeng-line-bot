@@ -17,8 +17,7 @@ const {
   approveWithdrawFlex,
   flexText
   checkIdFlex
-   
-} = require("./flex");
+   } = require("./flex");
 
 /* ================== CONFIG ================== */
 const config = {
