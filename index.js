@@ -5,6 +5,7 @@ const axios = require("axios");
 const vision = require("@google-cloud/vision");
 const { compare, calcPoint, parseResult } = require("./pokdeng");
 const { resultFlex } = require("./flex");
+const { loadPlayers, savePlayers } = require("./storage");
 
 /* ================== CONFIG ================== */
 const config = {
